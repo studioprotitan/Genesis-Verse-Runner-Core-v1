@@ -25,13 +25,13 @@ This handoff document details the state, architecture, and current execution of 
 ├── tsconfig.json             # TypeScript rules (configured for modern web, strict with no unused parameters relaxed)
 ├── vite.config.ts            # Vite config (serving development bundle)
 ├── index.html                # Entry HTML mount point
-├── public/
-│   └── idle.glb              # Public static model folder and files (copied directly to dist root by Vite)
 ├── src/
 │   ├── main.tsx              # React client bootstrapping
 │   ├── index.css             # Tailwind CSS entries and custom CSS variables
 │   ├── types.ts              # System-wide Shared Interfaces, Enums, and Types
 │   ├── App.tsx               # Main application controller (manages core GameStates)
+│   ├── models/
+│   │   └── idle.glb          # Static model asset for ESM imports, bundled by Vite
 │   └── components/
 │       ├── PreDeploymentLounge.tsx # Character customization suite, 3D rotating pilot model
 │       ├── GameCanvas.tsx          # Main 3D Game Loop, Keyboard input controller, BabylonJS scene, collision system
@@ -68,9 +68,9 @@ This handoff document details the state, architecture, and current execution of 
 1.  **BabylonJS Light Property Errors:**
     *   *Issue:* Direct access of `diffuseColor` property on BabylonJS `PointLight` and `HemisphericLight` objects caused compiler compilation errors because of class definitions.
     *   *Fix:* Refactored to standard `.diffuse` which accepts `Color3` objects securely.
-2.  **GLTF Asset Resolution Failure:**
-    *   *Issue:* Vite rollup bundler threw errors when trying to resolve `./idle.glb` as an ES Module import statement inside components, and absolute paths under `/src` break on static hosts like Vercel (since only `/public` is served as static).
-    *   *Fix:* Moved `idle.glb` to the standard Vite static root `/public/idle.glb` and updated all components (`PreDeploymentLounge` and `GameCanvas`) to load from `/idle.glb` which maps to the root directory at runtime. This guarantees compatibility on Vercel deployment.
+2.  **GLTF Asset Resolution & Handoff Compliance:**
+    *   *Issue:* Direct string pathing of GLB files in component assets would fail on specific static CDN/static hosts (like Vercel) which don't serve absolute paths from `/src` directly.
+    *   *Fix:* Moved the `idle.glb` file to `/src/models/idle.glb` and updated all components (`PreDeploymentLounge` and `GameCanvas`) to import it as an ES Module (`import idleGlbUrl from '../models/idle.glb'`) with a `@ts-ignore` flag. This allows Vite to properly resolve, bundle, hash, and route the asset securely at compile time.
 3.  **TypeScript Compilation Cleanup:**
     *   *Issue:* `noUnusedLocals` and `noUnusedParameters` flagged standard unused parameters within files.
     *   *Fix:* Relaxed these rules in `tsconfig.json` to streamline feature progression, ensuring the code remains highly clean and warning-free.

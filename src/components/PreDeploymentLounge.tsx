@@ -27,7 +27,8 @@ import {
   Sparkles, Eye, Volume2, VolumeX, Swords, Compass
 } from 'lucide-react';
 
-const idleGlbUrl = '/idle.glb';
+// @ts-ignore
+import idleGlbUrl from '../models/idle.glb';
 
 interface PreDeploymentLoungeProps {
   onStartGame: (selectedGear: any) => void;
