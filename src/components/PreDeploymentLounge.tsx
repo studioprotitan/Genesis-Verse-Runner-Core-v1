@@ -1,850 +1,802 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { 
-  Engine, 
-  Scene, 
-  Vector3, 
-  Color3, 
-  StandardMaterial, 
-  ArcRotateCamera, 
-  HemisphericLight, 
-  PointLight, 
-  Mesh, 
-  CreateBox, 
-  CreateCylinder, 
-  CreateSphere, 
-  CreateTorus, 
+import {
+  Engine,
+  Scene,
+  ArcRotateCamera,
+  Vector3,
+  HemisphericLight,
+  PointLight,
+  Color3,
+  StandardMaterial,
+  CreateCylinder,
+  CreateSphere,
+  CreateBox,
+  CreateTorus,
   TransformNode,
-  SceneLoader
+  VertexData,
+  Mesh,
+  SceneLoader,
+  Texture,
+  Animation
 } from '@babylonjs/core';
 import '@babylonjs/loaders/glTF';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Cpu, Shield, Zap, Terminal, ChevronRight, Play, RefreshCw, 
-  Settings, Layers, Radio, CheckCircle, Database, HelpCircle 
+  Settings, Layers, Radio, CheckCircle, Database, HelpCircle, 
+  Sparkles, Eye, Volume2, VolumeX, Swords, Compass
 } from 'lucide-react';
 
+const idleGlbUrl = '/idle.glb';
+
 interface PreDeploymentLoungeProps {
-  onDeploy: () => void;
-  onQuit: () => void;
-  selectedClass: string;
+  onStartGame: (selectedGear: any) => void;
+  savedHighScore?: number;
 }
 
-export function PreDeploymentLounge({ onDeploy, onQuit, selectedClass }: PreDeploymentLoungeProps) {
+export default function PreDeploymentLounge({ onStartGame, savedHighScore = 0 }: PreDeploymentLoungeProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [loadingProgress, setLoadingProgress] = useState<number>(0);
-  const [loadingStep, setLoadingStep] = useState<string>('Booting core terminal...');
-  const [animationMode, setAnimationMode] = useState<'IDLE' | 'JOGGING'>('IDLE');
-  
-  // Commander customizable gear state
-  const [gear, setGear] = useState({
-    headwrap: true,
-    crownSeal: true,
-    conduitCore: true,
-    bracers: true,
-    commandCoat: true,
-  });
-
-  // Babylon refs to modify meshes in real-time when toggled
+  const engineRef = useRef<Engine | null>(null);
+  const sceneRef = useRef<Scene | null>(null);
   const meshesRef = useRef<{
-    headwrapMesh?: Mesh;
-    crownSealMesh?: Mesh;
-    conduitCoreMesh?: Mesh;
-    bracersL?: Mesh;
-    bracersR?: Mesh;
-    coatPlates?: Mesh[];
     characterRoot?: TransformNode;
+    coreBody?: Mesh;
     headVisor?: Mesh;
+    chestPlate?: Mesh;
     armL?: Mesh;
     armR?: Mesh;
     legL?: Mesh;
     legR?: Mesh;
+    hudRing?: Mesh;
+    protectionShieldHull?: Mesh;
+    hexForceField?: Mesh;
   }>({});
 
-  // Stats calculation based on gear equipped
-  const getStats = () => {
-    let speed = 75;
-    let armor = 80;
-    let energy = 60;
+  const [loadingProgress, setLoadingProgress] = useState<number>(0);
+  const [loadingStep, setLoadingStep] = useState<string>('Booting core terminal...');
+  const [animationMode, setAnimationMode] = useState<'IDLE' | 'JOGGING'>('IDLE');
+  const [isMuted, setIsMuted] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
-    if (gear.headwrap) speed += 15;
-    if (gear.commandCoat) armor += 20;
-    if (gear.crownSeal) energy += 25;
-    if (gear.conduitCore) {
-      energy += 15;
-      speed += 5;
+  const animationModeRef = useRef<'IDLE' | 'JOGGING'>('IDLE');
+  const loadedAnimsRef = useRef<{
+    idleAnim?: any;
+    jogAnim?: any;
+    allGroups?: any[];
+  }>({});
+
+  useEffect(() => {
+    animationModeRef.current = animationMode;
+  }, [animationMode]);
+
+  // Character customizable gear state
+  const [gear, setGear] = useState({
+    visorColor: '#00FFFF', // Cyan
+    armorColor: '#3F3F46', // Zinc Dull Metal
+    chestColor: '#F27D26', // Orange Emissive
+    hasShield: true,
+    hasJetpack: false,
+    weaponType: 'PLASMA_BLADE' as 'PLASMA_BLADE' | 'BLASTER' | 'NONE'
+  });
+
+  // Sound generator
+  const playUISfx = (type: 'click' | 'toggle' | 'boot' | 'launch') => {
+    if (isMuted) return;
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      if (type === 'click') {
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(600, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(150, ctx.currentTime + 0.1);
+        gain.gain.setValueAtTime(0.1, ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.001, ctx.currentTime + 0.1);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.1);
+      } else if (type === 'toggle') {
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(350, ctx.currentTime);
+        osc.frequency.setValueAtTime(500, ctx.currentTime + 0.05);
+        gain.gain.setValueAtTime(0.08, ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.001, ctx.currentTime + 0.12);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.12);
+      } else if (type === 'boot') {
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(100, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(800, ctx.currentTime + 0.6);
+        gain.gain.setValueAtTime(0.05, ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.001, ctx.currentTime + 0.6);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.6);
+      } else if (type === 'launch') {
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(440, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.4);
+        gain.gain.setValueAtTime(0.12, ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.4);
+      }
+    } catch (e) {
+      // Audio context block safety
     }
-    if (gear.bracers) armor += 10;
-
-    return { speed, armor, energy };
   };
 
-  const stats = getStats();
-
-  // Simulated GLTF asset loading log system
+  // Loading steps Simulation
   useEffect(() => {
     const steps = [
-      { prg: 10, text: 'Mapping deep sector signal channels...' },
-      { prg: 25, text: 'Resolving @babylonjs/loaders GLTF/GLB formats...' },
-      { prg: 45, text: 'Attempting to fetch remote /idle.glb container...' },
-      { prg: 65, text: 'GLB container empty. Initiating high-poly procedural fallback...' },
-      { prg: 80, text: 'Injecting CST-ERT Commander mesh metadata nodes...' },
-      { prg: 95, text: 'Establishing 3D Pre-Deployment viewport loop...' },
-      { prg: 100, text: 'Pre-Deployment Lounge ready.' }
+      { text: 'Accessing tactical database...', duration: 400, prg: 20 },
+      { text: 'Calibrating character telemetry...', duration: 500, prg: 45 },
+      { text: 'Scanning for local assets (idle.glb)...', duration: 600, prg: 70 },
+      { text: 'Mounting holograph visualizer...', duration: 400, prg: 100 }
     ];
 
-    let stepIdx = 0;
-    const interval = setInterval(() => {
-      if (stepIdx < steps.length) {
-        setLoadingProgress(steps[stepIdx].prg);
-        setLoadingStep(steps[stepIdx].text);
-        stepIdx++;
-      } else {
-        clearInterval(interval);
+    let currentStep = 0;
+    const runSteps = () => {
+      if (currentStep < steps.length) {
+        setLoadingStep(steps[currentStep].text);
+        setLoadingProgress(steps[currentStep].prg);
         setTimeout(() => {
-          setIsLoading(false);
-        }, 600);
+          currentStep++;
+          runSteps();
+        }, steps[currentStep].duration);
+      } else {
+        setIsLoading(false);
+        playUISfx('boot');
       }
-    }, 400);
+    };
 
-    return () => clearInterval(interval);
+    runSteps();
   }, []);
 
-  // Initialize 3D Engine & Scene
+  // Set up 3D Scene
   useEffect(() => {
     if (isLoading || !canvasRef.current) return;
 
+    // 1. Engine & Scene Setup
     const engine = new Engine(canvasRef.current, true);
+    engineRef.current = engine;
     const scene = new Scene(engine);
+    sceneRef.current = scene;
 
-    // Deep space backdrop
-    scene.clearColor = new Color3(0.015, 0.02, 0.03).toColor4(1);
-    scene.ambientColor = new Color3(0.08, 0.1, 0.15);
+    scene.clearColor = new Color3(0.015, 0.02, 0.035).toColor4(1);
 
-    // Cinematic orbiting camera
-    const camera = new ArcRotateCamera(
-      'loungeCamera',
-      -Math.PI / 2.3, // alpha (rotation)
-      Math.PI / 2.2,  // beta (tilt)
-      5.2,            // radius
-      new Vector3(0, 0.9, 0), // target (look at chest)
-      scene
-    );
+    // 2. Beautiful Camera Layout
+    const camera = new ArcRotateCamera('loungeCamera', -Math.PI / 2.5, Math.PI / 2.2, 4.5, new Vector3(0, 0.9, 0), scene);
     camera.attachControl(canvasRef.current, true);
-    camera.lowerRadiusLimit = 3.0;
-    camera.upperRadiusLimit = 8.0;
-    camera.lowerBetaLimit = 0.2;
-    camera.upperBetaLimit = Math.PI / 2 - 0.05; // Prevent dipping underground
-    scene.activeCamera = camera;
+    camera.lowerRadiusLimit = 2.5;
+    camera.upperRadiusLimit = 7.0;
+    camera.lowerBetaLimit = 0.5;
+    camera.upperBetaLimit = Math.PI / 1.8;
 
-    // Soft surrounding lights
+    // 3. Cybernetic Lights Configuration
     const hemiLight = new HemisphericLight('hemiLight', new Vector3(0, 1, 0), scene);
     hemiLight.intensity = 0.65;
-    hemiLight.diffuse = new Color3(0.45, 0.6, 0.9);
-    hemiLight.specular = new Color3(0.2, 0.3, 0.5);
+    hemiLight.groundColor = new Color3(0.05, 0.08, 0.15);
+    hemiLight.diffuse = new Color3(0.8, 0.9, 1.0);
 
-    // Warm high-intensity key spot light for dramatic outlines
-    const spotLight = new PointLight('spotLight', new Vector3(2.5, 4, -2.5), scene);
-    spotLight.intensity = 1.2;
-    spotLight.diffuse = new Color3(0.95, 0.49, 0.15); // Emissive orange
+    const keyLight = new PointLight('keyLight', new Vector3(2.5, 3.0, 2.0), scene);
+    keyLight.intensity = 0.8;
+    keyLight.diffuse = new Color3(1.0, 0.6, 0.3); // Warm sun accent
 
-    const rimLight = new PointLight('rimLight', new Vector3(-3, 2, 3), scene);
-    rimLight.intensity = 0.8;
-    rimLight.diffuse = new Color3(0.1, 0.7, 1.0); // Teal rim glow
+    const fillLight = new PointLight('fillLight', new Vector3(-2.5, 1.5, -2.0), scene);
+    fillLight.intensity = 0.6;
+    fillLight.diffuse = new Color3(0.1, 0.7, 1.0); // Cool neon backfill
 
-    // Materials registry
-    const metalDarkMat = new StandardMaterial('metalDarkMat', scene);
-    metalDarkMat.diffuseColor = new Color3(0.12, 0.14, 0.18);
-    metalDarkMat.specularColor = new Color3(0.5, 0.5, 0.5);
+    // 4. Materials setup
+    const metalBodyMat = new StandardMaterial('metalBodyMat', scene);
+    metalBodyMat.diffuseColor = Color3.FromHexString(gear.armorColor);
+    metalBodyMat.specularColor = new Color3(0.8, 0.8, 1.0);
+    metalBodyMat.roughness = 0.15;
 
-    const metalRedMat = new StandardMaterial('metalRedMat', scene);
-    metalRedMat.diffuseColor = new Color3(0.58, 0.08, 0.08);
-    metalRedMat.specularColor = new Color3(0.9, 0.4, 0.4);
-    metalRedMat.emissiveColor = new Color3(0.15, 0.02, 0.02);
+    const neonVisorMat = new StandardMaterial('neonVisorMat', scene);
+    neonVisorMat.emissiveColor = Color3.FromHexString(gear.visorColor);
+    neonVisorMat.diffuseColor = Color3.FromHexString(gear.visorColor);
 
-    const goldMat = new StandardMaterial('goldMat', scene);
-    goldMat.diffuseColor = new Color3(0.95, 0.7, 0.15);
-    goldMat.specularColor = new Color3(1.0, 0.9, 0.6);
-    goldMat.emissiveColor = new Color3(0.2, 0.15, 0.0);
+    const chestEmissiveMat = new StandardMaterial('chestEmissiveMat', scene);
+    chestEmissiveMat.emissiveColor = Color3.FromHexString(gear.chestColor);
 
-    const glowOrangeMat = new StandardMaterial('glowOrangeMat', scene);
-    glowOrangeMat.emissiveColor = new Color3(0.95, 0.49, 0.15);
-    glowOrangeMat.diffuseColor = new Color3(0.2, 0.1, 0.0);
+    const metalDullMat = new StandardMaterial('metalDullMat', scene);
+    metalDullMat.diffuseColor = new Color3(0.2, 0.2, 0.22);
+    metalDullMat.specularColor = new Color3(0.3, 0.3, 0.3);
 
-    const glowBlueMat = new StandardMaterial('glowBlueMat', scene);
-    glowBlueMat.emissiveColor = new Color3(0.1, 0.75, 1.0);
-    glowBlueMat.diffuseColor = new Color3(0.0, 0.15, 0.25);
+    const gridPlatformMat = new StandardMaterial('platformMat', scene);
+    gridPlatformMat.diffuseColor = new Color3(0.05, 0.08, 0.12);
+    gridPlatformMat.emissiveColor = new Color3(0.01, 0.03, 0.06);
 
-    const whiteWrapMat = new StandardMaterial('whiteWrapMat', scene);
-    whiteWrapMat.diffuseColor = new Color3(0.9, 0.92, 0.95);
-    whiteWrapMat.specularColor = new Color3(0.3, 0.3, 0.3);
+    // 5. Interactive Platform Base Ring
+    const baseGrid = CreateCylinder('baseGrid', { height: 0.06, diameter: 2.8, tessellation: 48 }, scene);
+    baseGrid.position.y = -0.03;
+    baseGrid.material = gridPlatformMat;
 
-    // ====================================================
-    // 1. GLOWING RINGS PLATFORM
-    // ====================================================
-    const platformRoot = new TransformNode('platformRoot', scene);
-    
-    // Center dark block
-    const baseCylinder = CreateCylinder('platformBase', { height: 0.12, diameter: 2.8 }, scene);
-    baseCylinder.position.y = 0.01;
-    baseCylinder.material = metalDarkMat;
-    baseCylinder.parent = platformRoot;
+    const edgeRing = CreateTorus('edgeRing', { diameter: 2.8, thickness: 0.04, tessellation: 64 }, scene);
+    edgeRing.position.y = 0.01;
+    const ringMat = new StandardMaterial('ringMat', scene);
+    ringMat.emissiveColor = new Color3(0.95, 0.49, 0.15); // Tactical orange glow ring
+    ringMat.alpha = 0.8;
+    edgeRing.material = ringMat;
 
-    // Glowing inner ring
-    const ringInner = CreateTorus('ringInner', { diameter: 1.8, thickness: 0.08, tessellation: 24 }, scene);
-    ringInner.position.y = 0.04;
-    ringInner.material = glowBlueMat;
-    ringInner.parent = platformRoot;
-
-    // Glowing middle ring
-    const ringMid = CreateTorus('ringMid', { diameter: 2.4, thickness: 0.08, tessellation: 32 }, scene);
-    ringMid.position.y = 0.02;
-    ringMid.material = glowOrangeMat;
-    ringMid.parent = platformRoot;
-
-    // Glowing outer ring with floating segments
-    const ringOuter = CreateTorus('ringOuter', { diameter: 3.1, thickness: 0.05, tessellation: 48 }, scene);
-    ringOuter.position.y = 0.03;
-    ringOuter.material = glowBlueMat;
-    ringOuter.parent = platformRoot;
-
-    // ====================================================
-    // 2. RUNNER MODEL (PRODUCURAL FALLBACK / ASSET VIEWER)
-    // ====================================================
-    const characterRoot = new TransformNode('runnerRoot', scene);
+    // 6. Character Base Skeleton & Node Structure
+    const characterRoot = new TransformNode('charRoot', scene);
     characterRoot.position.y = 0.08;
     meshesRef.current.characterRoot = characterRoot;
 
-    // Attempt to load GLTF directly from assets
-    SceneLoader.ImportMeshAsync('', '/', 'idle.glb', scene)
+    // High-poly procedural torso components
+    const coreBody = CreateCylinder('coreBody', { 
+      height: 1.4, 
+      diameterTop: 0.48, 
+      diameterBottom: 0.35,
+      tessellation: 48,
+      subdivisions: 4
+    }, scene);
+    coreBody.position.y = 0.75;
+    coreBody.material = metalBodyMat;
+    coreBody.parent = characterRoot;
+    meshesRef.current.coreBody = coreBody;
+
+    // High-poly visor (head)
+    const headVisor = CreateSphere('headVisor', { diameter: 0.48, segments: 48 }, scene);
+    headVisor.position.y = 1.6;
+    headVisor.material = neonVisorMat;
+    headVisor.parent = characterRoot;
+    meshesRef.current.headVisor = headVisor;
+
+    // Beveled Chest Plate
+    const chestPlate = CreateBox('chestPlate', { width: 0.45, height: 0.45, depth: 0.25 }, scene);
+    chestPlate.position.set(0, 0.9, 0.18);
+    chestPlate.material = chestEmissiveMat;
+    chestPlate.parent = characterRoot;
+    meshesRef.current.chestPlate = chestPlate;
+
+    // Arms
+    const armL = CreateCylinder('armL', { height: 0.8, diameter: 0.18, tessellation: 36 }, scene);
+    armL.position.set(-0.38, 0.95, 0);
+    armL.material = metalDullMat;
+    armL.parent = characterRoot;
+    meshesRef.current.armL = armL;
+
+    const armR = armL.clone('armR');
+    armR.position.x = 0.38;
+    armR.parent = characterRoot;
+    meshesRef.current.armR = armR;
+
+    // Legs
+    const legL = CreateCylinder('legL', { height: 0.8, diameter: 0.2, tessellation: 36 }, scene);
+    legL.position.set(-0.22, 0.35, 0);
+    legL.material = metalDullMat;
+    legL.parent = characterRoot;
+    meshesRef.current.legL = legL;
+
+    const legR = legL.clone('legR');
+    legR.position.x = 0.22;
+    legR.parent = characterRoot;
+    meshesRef.current.legR = legR;
+
+    // HUD Indicator above head
+    const hudRing = CreateCylinder('hudRing', { height: 0.05, diameter: 0.9, tessellation: 64 }, scene);
+    hudRing.position.y = 2.15;
+    const hudRingMat = new StandardMaterial('hudMat', scene);
+    hudRingMat.emissiveColor = Color3.FromHexString(gear.chestColor);
+    hudRingMat.alpha = 0.45;
+    hudRing.material = hudRingMat;
+    hudRing.parent = characterRoot;
+    meshesRef.current.hudRing = hudRing;
+
+    // Translucent protective sphere shield
+    const protectionShieldHull = CreateSphere('protectionShieldHull', { diameter: 2.1, segments: 64 }, scene);
+    protectionShieldHull.position.y = 0.9;
+    const protectionShieldHullMat = new StandardMaterial('shieldMat', scene);
+    protectionShieldHullMat.diffuseColor = new Color3(0.1, 0.8, 1.0);
+    protectionShieldHullMat.emissiveColor = new Color3(0.15, 0.9, 1.0);
+    protectionShieldHullMat.alpha = 0.22;
+    protectionShieldHull.material = protectionShieldHullMat;
+    protectionShieldHull.parent = characterRoot;
+    protectionShieldHull.isVisible = gear.hasShield;
+    meshesRef.current.protectionShieldHull = protectionShieldHull;
+
+    // Jetpack backpack block
+    const jetpack = CreateBox('jetpack', { width: 0.3, height: 0.5, depth: 0.25 }, scene);
+    jetpack.position.set(0, 0.9, -0.22);
+    const jetpackMat = new StandardMaterial('jetpackMat', scene);
+    jetpackMat.diffuseColor = new Color3(0.2, 0.2, 0.25);
+    jetpack.material = jetpackMat;
+    jetpack.parent = characterRoot;
+    jetpack.isVisible = gear.hasJetpack;
+
+    // Attempt to load idle.glb
+    const lastSlash = idleGlbUrl.lastIndexOf('/');
+    const rootUrl = lastSlash !== -1 ? idleGlbUrl.substring(0, lastSlash + 1) : '';
+    const fileName = lastSlash !== -1 ? idleGlbUrl.substring(lastSlash + 1) : idleGlbUrl;
+
+    let hasLoadedGltf = false;
+    SceneLoader.ImportMeshAsync('', rootUrl, fileName, scene)
       .then((result) => {
-        console.log('GLTF loaded successfully inside Pre-deployment Viewer:', result);
-        // Position the loaded mesh properly on our rings platform
+        console.log('GLTF loaded inside Pre-deployment Viewer:', result);
         const loadedRoot = result.meshes[0];
         loadedRoot.parent = characterRoot;
         loadedRoot.scaling = new Vector3(1, 1, 1);
         loadedRoot.position = Vector3.Zero();
+
+        // Hide procedural components to use glTF model
+        coreBody.isVisible = false;
+        headVisor.isVisible = false;
+        chestPlate.isVisible = false;
+        armL.isVisible = false;
+        armR.isVisible = false;
+        legL.isVisible = false;
+        legR.isVisible = false;
+        jetpack.isVisible = false;
+
+        hasLoadedGltf = true;
+
+        // Extract Animations
+        const animGroups = result.animationGroups;
+        animGroups.forEach(g => g.stop());
+
+        const idle = animGroups.find(g => {
+          const n = g.name.toLowerCase();
+          return n.includes('idle') || n.includes('hero');
+        });
+        const jog = animGroups.find(g => {
+          const n = g.name.toLowerCase();
+          return n.includes('walk') || n.includes('run') || n.includes('jog') || n.includes('cst-ert-walk-a');
+        });
+
+        loadedAnimsRef.current = {
+          idleAnim: idle,
+          jogAnim: jog,
+          allGroups: animGroups
+        };
+
+        // Start initial animation based on current mode
+        if (animationModeRef.current === 'IDLE' && idle) {
+          idle.start(true);
+        } else if (animationModeRef.current === 'JOGGING') {
+          if (jog) jog.start(true);
+          else if (idle) idle.start(true);
+        }
       })
       .catch((err) => {
-        console.warn('Empty/Invalid idle.glb. Generating highly-detailed procedural Commander framework matching design...', err);
-        
-        // Let's generate a stunning, faithful 3D model of the Commander
-        
-        // Leg Right and Left
-        const legL = CreateCylinder('legL', { height: 0.65, diameter: 0.18 }, scene);
-        legL.position.set(-0.2, 0.3, 0);
-        legL.material = metalDarkMat;
-        legL.parent = characterRoot;
-        meshesRef.current.legL = legL;
-
-        const legR = CreateCylinder('legR', { height: 0.65, diameter: 0.18 }, scene);
-        legR.position.set(0.2, 0.3, 0);
-        legR.material = metalDarkMat;
-        legR.parent = characterRoot;
-        meshesRef.current.legR = legR;
-
-        // Custom golden-lined boots
-        const bootL = CreateCylinder('bootL', { height: 0.25, diameterTop: 0.19, diameterBottom: 0.22 }, scene);
-        bootL.position.y = -0.25;
-        bootL.material = goldMat;
-        bootL.parent = legL;
-
-        const bootR = CreateCylinder('bootR', { height: 0.25, diameterTop: 0.19, diameterBottom: 0.22 }, scene);
-        bootR.position.y = -0.25;
-        bootR.material = goldMat;
-        bootR.parent = legR;
-
-        // Torso / Body Coat (Executive Rail Command Coat)
-        const torso = CreateCylinder('torso', { height: 1.1, diameterTop: 0.45, diameterBottom: 0.32 }, scene);
-        torso.position.y = 1.05;
-        torso.material = metalRedMat;
-        torso.parent = characterRoot;
-
-        // Armor Plate (Front Coat flap / Gold details)
-        const zipperStrip = CreateBox('zipper', { width: 0.04, height: 1.0, depth: 0.12 }, scene);
-        zipperStrip.position.set(0, 0, 0.2);
-        zipperStrip.material = goldMat;
-        zipperStrip.parent = torso;
-
-        // Decorative shoulder pads (Bracers style)
-        const shoulderL = CreateSphere('shoulderL', { diameter: 0.32 }, scene);
-        shoulderL.position.set(-0.35, 1.45, 0);
-        shoulderL.material = goldMat;
-        shoulderL.parent = characterRoot;
-
-        const shoulderR = CreateSphere('shoulderR', { diameter: 0.32 }, scene);
-        shoulderR.position.set(0.35, 1.45, 0);
-        shoulderR.material = goldMat;
-        shoulderR.parent = characterRoot;
-
-        // Left and Right arm
-        const armL = CreateCylinder('armL', { height: 0.65, diameter: 0.15 }, scene);
-        armL.position.set(-0.38, 1.1, 0);
-        armL.material = metalRedMat;
-        armL.parent = characterRoot;
-        meshesRef.current.armL = armL;
-
-        const armR = CreateCylinder('armR', { height: 0.65, diameter: 0.15 }, scene);
-        armR.position.set(0.38, 1.1, 0);
-        armR.material = metalRedMat;
-        armR.parent = characterRoot;
-        meshesRef.current.armR = armR;
-
-        // Head Visor node
-        const headVisor = CreateSphere('headVisor', { diameter: 0.4 }, scene);
-        headVisor.position.y = 1.72;
-        headVisor.material = metalDarkMat;
-        headVisor.parent = characterRoot;
-        meshesRef.current.headVisor = headVisor;
-
-        const faceShield = CreateBox('faceShield', { width: 0.24, height: 0.14, depth: 0.12 }, scene);
-        faceShield.position.set(0, 0.02, 0.16);
-        faceShield.material = glowBlueMat;
-        faceShield.parent = headVisor;
-
-        // ====================================================
-        // OPTIONAL CUSTOMIZABLE GEARS (TOGGLE VISIBILITY)
-        // ====================================================
-        
-        // 1. Oracle Interface Headwrap
-        const headwrapMesh = CreateCylinder('headwrap', { height: 0.15, diameterTop: 0.42, diameterBottom: 0.41 }, scene);
-        headwrapMesh.position.y = 1.88;
-        headwrapMesh.material = whiteWrapMat;
-        headwrapMesh.parent = characterRoot;
-        meshesRef.current.headwrapMesh = headwrapMesh;
-
-        // 2. Executive Crown Seal (glowing circle behind head or chest)
-        const crownSealMesh = CreateTorus('crownSeal', { diameter: 0.45, thickness: 0.05, tessellation: 16 }, scene);
-        crownSealMesh.position.set(0, 1.15, -0.25);
-        crownSealMesh.rotation.x = Math.PI / 2;
-        crownSealMesh.material = goldMat;
-        crownSealMesh.parent = characterRoot;
-        meshesRef.current.crownSealMesh = crownSealMesh;
-
-        // 3. Signal Conduit Core (chest glowing cell)
-        const conduitCoreMesh = CreateSphere('conduitCore', { diameter: 0.18 }, scene);
-        conduitCoreMesh.position.set(0, 1.25, 0.2);
-        conduitCoreMesh.material = glowBlueMat;
-        conduitCoreMesh.parent = characterRoot;
-        meshesRef.current.conduitCoreMesh = conduitCoreMesh;
-
-        // 4. Command Bracers
-        const bracersL = CreateCylinder('bracersL', { height: 0.35, diameter: 0.18 }, scene);
-        bracersL.position.y = -0.15;
-        bracersL.material = goldMat;
-        bracersL.parent = armL;
-        meshesRef.current.bracersL = bracersL;
-
-        const bracersR = CreateCylinder('bracersR', { height: 0.35, diameter: 0.18 }, scene);
-        bracersR.position.y = -0.15;
-        bracersR.material = goldMat;
-        bracersR.parent = armR;
-        meshesRef.current.bracersR = bracersR;
-
-        // 5. Rail Command Coat plates
-        const coatPlateL = CreateBox('coatPlateL', { width: 0.06, height: 0.8, depth: 0.24 }, scene);
-        coatPlateL.position.set(-0.25, 0.7, 0.1);
-        coatPlateL.rotation.z = -0.12;
-        coatPlateL.material = metalRedMat;
-        coatPlateL.parent = characterRoot;
-
-        const coatPlateR = CreateBox('coatPlateR', { width: 0.06, height: 0.8, depth: 0.24 }, scene);
-        coatPlateR.position.set(0.25, 0.7, 0.1);
-        coatPlateR.rotation.z = 0.12;
-        coatPlateR.material = metalRedMat;
-        coatPlateR.parent = characterRoot;
-
-        meshesRef.current.coatPlates = [coatPlateL, coatPlateR];
+        console.warn('Could not load local idle.glb. Running ultra-beautiful procedural render:', err);
       });
 
-    // ====================================================
-    // ANIMATION & RENDER TICK LOOP
-    // ====================================================
+    // 7. Render Loop with Procedural swing / walk animations
     let time = 0;
-    const renderLoop = () => {
-      time += 0.035;
+    scene.onBeforeRenderObservable.add(() => {
+      time += engine.getDeltaTime() / 1000;
 
-      // Rotate glowing platform rings
-      ringInner.rotation.y = time * 0.4;
-      ringMid.rotation.y = -time * 0.6;
-      ringOuter.rotation.y = time * 0.25;
+      // Rotate edge platform ring slowly
+      edgeRing.rotation.y = time * 0.15;
+      hudRing.rotation.y = -time * 0.35;
 
-      // Gently bob platform slightly
-      platformRoot.position.y = Math.sin(time * 0.8) * 0.02;
+      // Float the HUD ring above head
+      hudRing.position.y = 2.15 + Math.sin(time * 2.0) * 0.04;
 
-      // Procedural animations if refs are active
-      const { 
-        characterRoot: root, headVisor, armL, armR, legL, legR, 
-        conduitCoreMesh, crownSealMesh 
-      } = meshesRef.current;
+      if (!hasLoadedGltf) {
+        // Run procedural skeleton cycle based on selection
+        if (animationModeRef.current === 'IDLE') {
+          // Slow dynamic breathing
+          characterRoot.position.y = Math.sin(time * 1.5) * 0.02 + 0.08;
+          headVisor.rotation.x = Math.sin(time * 1.5) * 0.03;
+          headVisor.rotation.y = Math.cos(time * 0.5) * 0.05;
 
-      if (root) {
-        if (animationMode === 'IDLE') {
-          // Slow breathing animation
-          root.position.y = Math.sin(time * 1.5) * 0.02 + 0.08;
-          
-          if (headVisor) headVisor.rotation.x = Math.sin(time * 1.5) * 0.03;
-          if (headVisor) headVisor.rotation.y = Math.cos(time * 0.5) * 0.05;
+          armL.rotation.x = Math.sin(time * 1.5) * 0.08;
+          armL.rotation.z = -0.1 + Math.sin(time * 0.5) * 0.02;
 
-          if (armL) {
-            armL.rotation.x = Math.sin(time * 1.5) * 0.08;
-            armL.rotation.z = -0.1 + Math.sin(time * 0.5) * 0.02;
-          }
-          if (armR) {
-            armR.rotation.x = -Math.sin(time * 1.5) * 0.08;
-            armR.rotation.z = 0.1 - Math.sin(time * 0.5) * 0.02;
-          }
+          armR.rotation.x = -Math.sin(time * 1.5) * 0.08;
+          armR.rotation.z = 0.1 - Math.sin(time * 0.5) * 0.02;
 
-          if (legL) {
-            legL.rotation.x = 0;
-            legL.rotation.z = -0.05;
-          }
-          if (legR) {
-            legR.rotation.x = 0;
-            legR.rotation.z = 0.05;
-          }
+          legL.rotation.x = 0;
+          legL.rotation.z = -0.05;
+          legR.rotation.x = 0;
+          legR.rotation.z = 0.05;
         } else {
-          // Energetic Jogging running cycle
-          root.position.y = Math.abs(Math.sin(time * 4)) * 0.1 + 0.06;
-          
-          if (headVisor) headVisor.rotation.x = 0.1 + Math.sin(time * 4) * 0.03;
+          // Energetic Jog cycle
+          characterRoot.position.y = Math.abs(Math.sin(time * 4)) * 0.1 + 0.06;
+          headVisor.rotation.x = 0.1 + Math.sin(time * 4) * 0.03;
 
-          if (armL) {
-            armL.rotation.x = -Math.sin(time * 4) * 0.55;
-            armL.rotation.z = -0.15;
-          }
-          if (armR) {
-            armR.rotation.x = Math.sin(time * 4) * 0.55;
-            armR.rotation.z = 0.15;
-          }
+          armL.rotation.x = -Math.sin(time * 4) * 0.55;
+          armL.rotation.z = -0.15;
+          armR.rotation.x = Math.sin(time * 4) * 0.55;
+          armR.rotation.z = 0.15;
 
-          if (legL) {
-            legL.rotation.x = Math.sin(time * 4) * 0.5;
-            legL.rotation.z = -0.02;
-          }
-          if (legR) {
-            legR.rotation.x = -Math.sin(time * 4) * 0.5;
-            legR.rotation.z = 0.02;
-          }
+          legL.rotation.x = Math.sin(time * 4) * 0.5;
+          legL.rotation.z = -0.02;
+          legR.rotation.x = -Math.sin(time * 4) * 0.5;
+          legR.rotation.z = 0.02;
         }
-
-        // Animate floating items (Conduit core pulse, crown seal rotate)
-        if (conduitCoreMesh) {
-          const pulse = 0.8 + Math.abs(Math.sin(time * 2)) * 0.3;
-          conduitCoreMesh.scaling.set(pulse, pulse, pulse);
-        }
-        if (crownSealMesh) {
-          crownSealMesh.rotation.y = time * 0.8;
-          crownSealMesh.position.y = 1.15 + Math.sin(time * 1.5) * 0.04;
+      } else {
+        // Even with 3D model, can rotate base or bob slightly if desired, or let animation group execute
+        if (animationModeRef.current === 'JOGGING' && !loadedAnimsRef.current.jogAnim) {
+          characterRoot.position.y = Math.abs(Math.sin(time * 4)) * 0.08 + 0.08;
+          characterRoot.rotation.x = 0.1; // Forward lean
+        } else {
+          characterRoot.position.y = 0.08;
+          characterRoot.rotation.x = 0;
         }
       }
+    });
 
+    engine.runRenderLoop(() => {
       scene.render();
+    });
+
+    const handleResize = () => {
+      engine.resize();
     };
-
-    engine.runRenderLoop(renderLoop);
-
-    // Watch resize
-    const handleResize = () => engine.resize();
     window.addEventListener('resize', handleResize);
 
     return () => {
       window.removeEventListener('resize', handleResize);
       engine.dispose();
     };
-  }, [isLoading, animationMode]);
+  }, [isLoading]);
 
-  // Synchronize gear visibility checkboxes
+  // Synchronize dynamic customizations
   useEffect(() => {
-    const { 
-      headwrapMesh, crownSealMesh, conduitCoreMesh, 
-      bracersL, bracersR, coatPlates 
-    } = meshesRef.current;
+    if (!sceneRef.current) return;
+    const scene = sceneRef.current;
 
-    if (headwrapMesh) headwrapMesh.isVisible = gear.headwrap;
-    if (crownSealMesh) crownSealMesh.isVisible = gear.crownSeal;
-    if (conduitCoreMesh) conduitCoreMesh.isVisible = gear.conduitCore;
-    
-    if (bracersL) bracersL.isVisible = gear.bracers;
-    if (bracersR) bracersR.isVisible = gear.bracers;
+    const vMat = scene.getMaterialByName('neonVisorMat') as StandardMaterial;
+    if (vMat) {
+      vMat.emissiveColor = Color3.FromHexString(gear.visorColor);
+      vMat.diffuseColor = Color3.FromHexString(gear.visorColor);
+    }
 
-    if (coatPlates) {
-      coatPlates.forEach(plate => {
-        plate.isVisible = gear.commandCoat;
-      });
+    const cMat = scene.getMaterialByName('chestEmissiveMat') as StandardMaterial;
+    if (cMat) {
+      cMat.emissiveColor = Color3.FromHexString(gear.chestColor);
+    }
+
+    const bMat = scene.getMaterialByName('metalBodyMat') as StandardMaterial;
+    if (bMat) {
+      bMat.diffuseColor = Color3.FromHexString(gear.armorColor);
+    }
+
+    if (meshesRef.current.protectionShieldHull) {
+      meshesRef.current.protectionShieldHull.isVisible = gear.hasShield;
     }
   }, [gear]);
 
-  const toggleGear = (item: keyof typeof gear) => {
-    setGear(prev => ({
-      ...prev,
-      [item]: !prev[item],
-    }));
-  };
+  // Synchronize Animations Mode
+  useEffect(() => {
+    const { idleAnim, jogAnim, allGroups } = loadedAnimsRef.current;
+    if (allGroups && allGroups.length > 0) {
+      allGroups.forEach(g => g.stop());
+      if (animationMode === 'IDLE') {
+        if (idleAnim) idleAnim.start(true);
+        else allGroups[0].start(true);
+      } else if (animationMode === 'JOGGING') {
+        if (jogAnim) jogAnim.start(true);
+        else if (idleAnim) idleAnim.start(true);
+        else allGroups[0].start(true);
+      }
+    }
+  }, [animationMode]);
 
   return (
-    <div className="absolute inset-0 z-30 flex flex-col bg-[#030508] select-none" id="pre-deployment-portal">
-      <AnimatePresence mode="wait">
-        {isLoading ? (
-          // ====================================================
-          // LOADER SCREEN FOR PRE-DEPLOYMENT GLTF
-          // ====================================================
+    <div className="relative w-full h-screen bg-[#030712] text-zinc-100 flex flex-col md:flex-row overflow-hidden">
+      {/* Loading Overlay */}
+      <AnimatePresence>
+        {isLoading && (
           <motion.div 
-            key="pre-loader"
             initial={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="absolute inset-0 bg-[#030509] flex flex-col justify-center items-center z-50 p-6"
+            className="absolute inset-0 z-50 bg-[#030712] flex flex-col items-center justify-center p-6 border-4 border-zinc-900"
           >
-            <div className="absolute inset-0 bg-[linear-gradient(rgba(242,125,38,0.01)_1px,transparent_1px)] bg-[size:30px_30px] pointer-events-none mix-blend-overlay opacity-30" />
-            <div className="w-full max-w-md space-y-8 relative">
-              
-              {/* High-tech corners */}
-              <div className="absolute -top-4 -left-4 w-3.5 h-3.5 border-t border-l border-[#F27D26]" />
-              <div className="absolute -top-4 -right-4 w-3.5 h-3.5 border-t border-r border-[#F27D26]" />
-              <div className="absolute -bottom-4 -left-4 w-3.5 h-3.5 border-b border-l border-[#F27D26]" />
-              <div className="absolute -bottom-4 -right-4 w-3.5 h-3.5 border-b border-r border-[#F27D26]" />
-
-              <div className="text-center space-y-3">
-                <div className="relative w-16 h-16 mx-auto flex items-center justify-center">
-                  <Cpu className="w-8 h-8 text-[#F27D26] animate-pulse" />
-                  <div className="absolute inset-0 rounded-full border border-[#F27D26]/20 border-t-[#F27D26] animate-spin" />
-                </div>
+            <div className="w-full max-w-md p-6 bg-black/60 border border-zinc-800 rounded-lg relative overflow-hidden backdrop-blur-md">
+              <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-[#F27D26] to-transparent animate-pulse" />
+              <div className="flex items-center gap-3 mb-6">
+                <Cpu className="text-[#F27D26] w-6 h-6 animate-spin" />
                 <div>
-                  <h3 className="text-xs font-mono font-black text-[#F27D26] tracking-[0.2em] uppercase">
-                    GLTF CALIBRATION SEQUENCE
-                  </h3>
-                  <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest mt-1">
-                    System Asset Initialization Node
-                  </p>
+                  <h2 className="text-sm font-mono tracking-wider text-[#F27D26] uppercase">SYSTEM LOADING</h2>
+                  <p className="text-xs text-zinc-500 font-mono">CYBERNETIC_PLATFORM_V4.0</p>
                 </div>
               </div>
-
-              {/* Progress Bar Container */}
-              <div className="space-y-2">
-                <div className="flex justify-between items-center text-[9.5px] font-mono text-zinc-400">
-                  <span className="flex items-center gap-1.5 uppercase font-bold text-zinc-500">
-                    <Database size={11} className="text-[#F27D26]" />
-                    Container Cache
-                  </span>
-                  <span className="font-bold text-[#F27D26]">{loadingProgress}%</span>
+              
+              <div className="space-y-4">
+                <div className="flex justify-between items-center text-xs font-mono">
+                  <span className="text-zinc-400 animate-pulse">{loadingStep}</span>
+                  <span className="text-[#F27D26] font-bold">{loadingProgress}%</span>
                 </div>
-                
-                <div className="h-1.5 w-full bg-zinc-950 rounded-full overflow-hidden border border-zinc-900">
+                <div className="w-full h-1.5 bg-zinc-900 rounded-full overflow-hidden border border-zinc-850">
                   <motion.div 
-                    className="h-full bg-gradient-to-r from-red-650 via-[#F27D26] to-amber-500 rounded-full shadow-[0_0_8px_rgba(242,125,38,0.5)]"
+                    className="h-full bg-gradient-to-r from-orange-600 to-[#F27D26]" 
+                    initial={{ width: '0%' }}
                     animate={{ width: `${loadingProgress}%` }}
-                    transition={{ ease: "easeInOut", duration: 0.3 }}
+                    transition={{ ease: 'easeOut' }}
                   />
                 </div>
-              </div>
-
-              {/* Console Logs Output */}
-              <div className="bg-black/85 border border-[#F27D26]/10 rounded-lg p-3 h-24 overflow-y-auto no-scrollbar font-mono text-[9px] text-zinc-400 space-y-1.5">
-                <div className="text-emerald-500 flex items-center gap-1">
-                  <span className="text-[8px] px-1 bg-emerald-950/50 border border-emerald-900 rounded">SYS</span>
-                  <span>Engine status initialized. WebSocket idle...</span>
-                </div>
-                <div className="text-amber-500 flex items-center gap-1">
-                  <span className="text-[8px] px-1 bg-amber-950/50 border border-amber-900 rounded">GLTF</span>
-                  <span>{loadingStep}</span>
-                </div>
-                <div className="text-zinc-600 flex items-center gap-1">
-                  <span>&gt; Mounting client renderer frame...</span>
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        ) : (
-          // ====================================================
-          // PRE-DEPLOYMENT LOUNGE WORKSPACE
-          // ====================================================
-          <motion.div 
-            key="pre-workspace"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="flex-1 flex flex-col lg:flex-row min-h-0 overflow-hidden relative"
-          >
-            {/* Background cyber grid */}
-            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom,rgba(242,125,38,0.03)_0%,transparent_75%)] pointer-events-none z-0" />
-
-            {/* 3D Viewport Column */}
-            <div className="flex-1 flex flex-col min-h-0 relative z-10 border-b lg:border-b-0 lg:border-r border-zinc-900">
-              
-              {/* Header inside viewport */}
-              <div className="absolute top-4 left-4 z-20 flex flex-col gap-1 pointer-events-none">
-                <span className="text-[8.5px] font-mono text-[#F27D26] font-bold tracking-[0.25em] uppercase">
-                  ACTIVE VIEWPORT // ORBIT CALIBRATED
-                </span>
-                <h3 className="text-sm font-serif font-black text-white uppercase tracking-wider">
-                  CST-ERT COMMANDER 3D RIG
-                </h3>
-              </div>
-
-              {/* Animation controls overlay */}
-              <div className="absolute bottom-4 left-4 z-20 flex gap-2">
-                <button
-                  onClick={() => setAnimationMode('IDLE')}
-                  className={`px-3 py-1.5 rounded-md font-mono text-[10px] font-bold uppercase transition-all flex items-center gap-1 border cursor-pointer ${
-                    animationMode === 'IDLE'
-                      ? 'bg-[#F27D26] text-black border-[#F27D26]'
-                      : 'bg-zinc-950/90 text-zinc-400 border-zinc-850 hover:bg-zinc-900'
-                  }`}
-                >
-                  <RefreshCw size={11} className={animationMode === 'IDLE' ? 'animate-spin' : ''} />
-                  Idle Stance
-                </button>
-                <button
-                  onClick={() => setAnimationMode('JOGGING')}
-                  className={`px-3 py-1.5 rounded-md font-mono text-[10px] font-bold uppercase transition-all flex items-center gap-1 border cursor-pointer ${
-                    animationMode === 'JOGGING'
-                      ? 'bg-[#F27D26] text-black border-[#F27D26]'
-                      : 'bg-zinc-950/90 text-zinc-400 border-zinc-850 hover:bg-zinc-900'
-                  }`}
-                >
-                  <Layers size={11} />
-                  Jog Test Cycle
-                </button>
-              </div>
-
-              {/* Viewport instruction card */}
-              <div className="absolute top-4 right-4 z-20 bg-zinc-950/80 border border-zinc-850/60 p-2.5 rounded-lg text-right pointer-events-none">
-                <span className="text-[8px] font-mono text-zinc-500 block uppercase font-bold">ArcRotate Camera</span>
-                <span className="text-[9.5px] font-mono text-zinc-300 block font-bold">DRAG OR ORBIT SCREEN TO INSPECT</span>
-              </div>
-
-              {/* Interactive canvas element */}
-              <canvas ref={canvasRef} className="w-full h-full flex-1 touch-none outline-none" />
-            </div>
-
-            {/* ====================================================
-                MTD GLTF CARD HOLDER (CUSTOMIZER PANEL)
-               ==================================================== */}
-            <div className="w-full lg:w-[380px] bg-zinc-950/70 backdrop-blur-md flex flex-col p-5 md:p-6 min-h-0 overflow-y-auto no-scrollbar relative z-10 border-t lg:border-t-0 border-zinc-900 select-text">
-              
-              {/* Card Holder Branding */}
-              <div className="border-b border-[#F27D26]/20 pb-4 mb-5 space-y-2 select-text">
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-[#F27D26] animate-pulse" />
-                  <span className="text-[10px] font-mono font-black text-[#F27D26] tracking-[0.25em] uppercase">
-                    MTD GLTF CARD HOLDER
-                  </span>
-                </div>
-                
-                <h2 className="text-xl font-serif font-black text-white uppercase tracking-wider leading-tight">
-                  CST-ERT COMMANDER
-                </h2>
-                <div className="flex justify-between items-center text-[9px] font-mono text-zinc-500">
-                  <span>DESIGNATION: CST-ERT-CMD-77A</span>
-                  <span className="text-emerald-500 font-bold bg-emerald-950/30 px-1.5 py-0.5 rounded border border-emerald-900/40">
-                    STATUS: SECURED
-                  </span>
-                </div>
-              </div>
-
-              {/* Commander Interactive Gear System */}
-              <div className="space-y-4 flex-1">
-                <div>
-                  <h3 className="text-[10.5px] font-mono font-bold text-zinc-400 tracking-wider uppercase mb-3 flex items-center gap-1.5">
-                    <Settings size={12} className="text-[#F27D26]" />
-                    Commander Gear Configuration
-                  </h3>
-                  
-                  <div className="space-y-2.5">
-                    {/* Item 1: Headwrap */}
-                    <div 
-                      onClick={() => toggleGear('headwrap')}
-                      className={`p-3 rounded-lg border transition-all cursor-pointer flex items-center justify-between ${
-                        gear.headwrap 
-                          ? 'bg-[#F27D26]/5 border-[#F27D26]/40 text-zinc-100' 
-                          : 'bg-black/40 border-zinc-900/65 text-zinc-500 hover:border-zinc-800'
-                      }`}
-                    >
-                      <div className="space-y-0.5 pointer-events-none">
-                        <span className="text-[10px] font-serif font-black block uppercase tracking-wide">
-                          Oracle Interface Headwrap
-                        </span>
-                        <span className="text-[8.5px] font-mono text-zinc-500 block">
-                          Neural Command Uplink (+15% speed)
-                        </span>
-                      </div>
-                      <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center ${
-                        gear.headwrap ? 'bg-[#F27D26] border-[#F27D26]' : 'border-zinc-800'
-                      }`}>
-                        {gear.headwrap && <span className="w-1.5 h-1.5 bg-black rounded-sm" />}
-                      </div>
-                    </div>
-
-                    {/* Item 2: Crown Seal */}
-                    <div 
-                      onClick={() => toggleGear('crownSeal')}
-                      className={`p-3 rounded-lg border transition-all cursor-pointer flex items-center justify-between ${
-                        gear.crownSeal 
-                          ? 'bg-[#F27D26]/5 border-[#F27D26]/40 text-zinc-100' 
-                          : 'bg-black/40 border-zinc-900/65 text-zinc-500 hover:border-zinc-800'
-                      }`}
-                    >
-                      <div className="space-y-0.5 pointer-events-none">
-                        <span className="text-[10px] font-serif font-black block uppercase tracking-wide">
-                          Executive Crown Seal
-                        </span>
-                        <span className="text-[8.5px] font-mono text-zinc-500 block">
-                          CST High-level Authorization (+25% energy)
-                        </span>
-                      </div>
-                      <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center ${
-                        gear.crownSeal ? 'bg-[#F27D26] border-[#F27D26]' : 'border-zinc-800'
-                      }`}>
-                        {gear.crownSeal && <span className="w-1.5 h-1.5 bg-black rounded-sm" />}
-                      </div>
-                    </div>
-
-                    {/* Item 3: Conduit Core */}
-                    <div 
-                      onClick={() => toggleGear('conduitCore')}
-                      className={`p-3 rounded-lg border transition-all cursor-pointer flex items-center justify-between ${
-                        gear.conduitCore 
-                          ? 'bg-[#F27D26]/5 border-[#F27D26]/40 text-zinc-100' 
-                          : 'bg-black/40 border-zinc-900/65 text-zinc-500 hover:border-zinc-800'
-                      }`}
-                    >
-                      <div className="space-y-0.5 pointer-events-none">
-                        <span className="text-[10px] font-serif font-black block uppercase tracking-wide">
-                          Signal Conduit Core
-                        </span>
-                        <span className="text-[8.5px] font-mono text-zinc-500 block">
-                          Oracle battlegrid receptor (+15% energy, +5% speed)
-                        </span>
-                      </div>
-                      <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center ${
-                        gear.conduitCore ? 'bg-[#F27D26] border-[#F27D26]' : 'border-zinc-800'
-                      }`}>
-                        {gear.conduitCore && <span className="w-1.5 h-1.5 bg-black rounded-sm" />}
-                      </div>
-                    </div>
-
-                    {/* Item 4: Command Bracers */}
-                    <div 
-                      onClick={() => toggleGear('bracers')}
-                      className={`p-3 rounded-lg border transition-all cursor-pointer flex items-center justify-between ${
-                        gear.bracers 
-                          ? 'bg-[#F27D26]/5 border-[#F27D26]/40 text-zinc-100' 
-                          : 'bg-black/40 border-zinc-900/65 text-zinc-500 hover:border-zinc-800'
-                      }`}
-                    >
-                      <div className="space-y-0.5 pointer-events-none">
-                        <span className="text-[10px] font-serif font-black block uppercase tracking-wide">
-                          Command Bracers
-                        </span>
-                        <span className="text-[8.5px] font-mono text-zinc-500 block">
-                          Holographic tactical HUD controllers (+10% armor)
-                        </span>
-                      </div>
-                      <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center ${
-                        gear.bracers ? 'bg-[#F27D26] border-[#F27D26]' : 'border-zinc-800'
-                      }`}>
-                        {gear.bracers && <span className="w-1.5 h-1.5 bg-black rounded-sm" />}
-                      </div>
-                    </div>
-
-                    {/* Item 5: Command Coat */}
-                    <div 
-                      onClick={() => toggleGear('commandCoat')}
-                      className={`p-3 rounded-lg border transition-all cursor-pointer flex items-center justify-between ${
-                        gear.commandCoat 
-                          ? 'bg-[#F27D26]/5 border-[#F27D26]/40 text-zinc-100' 
-                          : 'bg-black/40 border-zinc-900/65 text-zinc-500 hover:border-zinc-800'
-                      }`}
-                    >
-                      <div className="space-y-0.5 pointer-events-none">
-                        <span className="text-[10px] font-serif font-black block uppercase tracking-wide">
-                          Rail Command Coat
-                        </span>
-                        <span className="text-[8.5px] font-mono text-zinc-500 block">
-                          Adaptive fibers climate-sealed fabric (+20% armor)
-                        </span>
-                      </div>
-                      <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center ${
-                        gear.commandCoat ? 'bg-[#F27D26] border-[#F27D26]' : 'border-zinc-800'
-                      }`}>
-                        {gear.commandCoat && <span className="w-1.5 h-1.5 bg-black rounded-sm" />}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Dynamic Calibrated Stats */}
-                <div className="space-y-3 pt-4 border-t border-zinc-900/60">
-                  <h3 className="text-[10px] font-mono font-bold text-zinc-400 tracking-wider uppercase mb-1">
-                    Calibrated Output Metrics
-                  </h3>
-                  
-                  <div className="space-y-2">
-                    {/* Speed Stat */}
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-[9.5px] font-mono text-zinc-550">
-                        <span className="uppercase flex items-center gap-1">
-                          <Radio size={10} className="text-[#F27D26]" />
-                          Run Velocity (SPEED)
-                        </span>
-                        <span className="text-zinc-350 font-bold">{stats.speed}%</span>
-                      </div>
-                      <div className="h-1 bg-zinc-950 rounded-full overflow-hidden">
-                        <div className="h-full bg-[#F27D26]" style={{ width: `${stats.speed}%` }} />
-                      </div>
-                    </div>
-
-                    {/* Armor Stat */}
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-[9.5px] font-mono text-zinc-550">
-                        <span className="uppercase flex items-center gap-1">
-                          <Shield size={10} className="text-[#F27D26]" />
-                          Hull Armor Resistance (HP)
-                        </span>
-                        <span className="text-zinc-350 font-bold">{stats.armor}%</span>
-                      </div>
-                      <div className="h-1 bg-zinc-950 rounded-full overflow-hidden">
-                        <div className="h-full bg-[#F27D26]" style={{ width: `${stats.armor}%` }} />
-                      </div>
-                    </div>
-
-                    {/* Energy Stat */}
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-[9.5px] font-mono text-zinc-550">
-                        <span className="uppercase flex items-center gap-1">
-                          <Zap size={10} className="text-yellow-500 animate-pulse" />
-                          Capacitor Energy Charge
-                        </span>
-                        <span className="text-zinc-350 font-bold">{stats.energy}%</span>
-                      </div>
-                      <div className="h-1 bg-zinc-950 rounded-full overflow-hidden">
-                        <div className="h-full bg-[#F27D26]" style={{ width: `${stats.energy}%` }} />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Deployment Action CTA */}
-              <div className="pt-6 border-t border-zinc-900 mt-6 space-y-2 select-text">
-                <button
-                  onClick={onDeploy}
-                  className="py-4.5 px-6 bg-gradient-to-r from-red-650 via-[#F27D26] to-amber-500 hover:from-red-600 hover:to-amber-450 text-black font-black uppercase text-xs tracking-[0.2em] rounded-xl transition-all shadow-[0_0_24px_rgba(242,125,38,0.2)] hover:shadow-[0_0_32px_rgba(242,125,38,0.3)] hover:scale-[1.01] active:scale-98 cursor-pointer flex items-center justify-center gap-2.5 w-full font-serif"
-                >
-                  <Play className="w-4 h-4 fill-black" />
-                  <span>DEPLOY CALIBRATED RUNNER</span>
-                </button>
-                
-                <button
-                  onClick={onQuit}
-                  className="w-full py-2.5 text-zinc-500 hover:text-zinc-300 font-mono text-[9.5px] uppercase tracking-widest cursor-pointer hover:bg-zinc-950/40 rounded-lg transition-colors border border-transparent hover:border-zinc-900/60"
-                >
-                  Return to Character Chamber
-                </button>
               </div>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* LEFT: Cyber Control Panel */}
+      <div className="w-full md:w-96 bg-zinc-950 border-r border-zinc-850 flex flex-col z-10 overflow-y-auto">
+        {/* Terminal Header */}
+        <div className="p-5 border-b border-zinc-850 bg-black/50 flex justify-between items-center">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-[#F27D26] animate-ping" />
+              <h1 className="text-sm font-bold tracking-wider font-mono text-[#F27D26] uppercase">PILOT LOUNGE</h1>
+            </div>
+            <p className="text-[10px] text-zinc-500 font-mono mt-0.5">LAUNCH_SEQUENCE_READY</p>
+          </div>
+          <button 
+            onClick={() => {
+              setIsMuted(!isMuted);
+              playUISfx('toggle');
+            }}
+            className="p-1.5 border border-zinc-800 hover:border-zinc-700 bg-zinc-900 rounded text-zinc-400 hover:text-white transition"
+          >
+            {isMuted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+          </button>
+        </div>
+
+        {/* Saved Stats */}
+        <div className="p-4 mx-4 mt-4 bg-zinc-900/60 border border-zinc-800/80 rounded flex justify-between items-center">
+          <div className="flex items-center gap-2">
+            <Sparkles className="text-[#F27D26] w-4 h-4" />
+            <span className="text-xs font-mono text-zinc-400 uppercase">Personal Best:</span>
+          </div>
+          <span className="text-sm font-mono font-bold text-white tracking-wider">{savedHighScore} pts</span>
+        </div>
+
+        {/* Customize Panel tabs */}
+        <div className="p-5 flex-1 space-y-6">
+          {/* Section 1: Customize Gear */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 border-b border-zinc-800 pb-2">
+              <Settings size={14} className="text-[#F27D26]" />
+              <h2 className="text-xs font-bold tracking-wider font-mono text-zinc-400 uppercase">TELEMETRY ACCESS</h2>
+            </div>
+
+            {/* Armor Color */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-mono text-zinc-500 uppercase">Armor Shell Plating</label>
+              <div className="flex gap-2">
+                {[
+                  { hex: '#3F3F46', name: 'Titanium' },
+                  { hex: '#1E293B', name: 'Cyber Blue' },
+                  { hex: '#450A0A', name: 'Crimson' },
+                  { hex: '#14532D', name: 'Matrix Green' },
+                  { hex: '#1E1B4B', name: 'Void Purple' }
+                ].map((color) => (
+                  <button
+                    key={color.hex}
+                    onClick={() => {
+                      setGear({ ...gear, armorColor: color.hex });
+                      playUISfx('click');
+                    }}
+                    className={`w-6 h-6 rounded border transition-all ${
+                      gear.armorColor === color.hex 
+                        ? 'border-[#F27D26] scale-110 shadow-[0_0_8px_rgba(242,125,38,0.3)]' 
+                        : 'border-transparent opacity-60 hover:opacity-100'
+                    }`}
+                    style={{ backgroundColor: color.hex }}
+                    title={color.name}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* Visor Color */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-mono text-zinc-500 uppercase">HUD Visor Emissive</label>
+              <div className="flex gap-2">
+                {[
+                  { hex: '#00FFFF', name: 'Tactical Cyan' },
+                  { hex: '#EF4444', name: 'Rage Red' },
+                  { hex: '#22C55E', name: 'Safe Green' },
+                  { hex: '#EAB308', name: 'Warn Yellow' },
+                  { hex: '#EC4899', name: 'Neon Pink' }
+                ].map((color) => (
+                  <button
+                    key={color.hex}
+                    onClick={() => {
+                      setGear({ ...gear, visorColor: color.hex });
+                      playUISfx('click');
+                    }}
+                    className={`w-6 h-6 rounded border transition-all ${
+                      gear.visorColor === color.hex 
+                        ? 'border-[#F27D26] scale-110 shadow-[0_0_8px_rgba(242,125,38,0.3)]' 
+                        : 'border-transparent opacity-60 hover:opacity-100'
+                    }`}
+                    style={{ backgroundColor: color.hex }}
+                    title={color.name}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* Chest Core Color */}
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-mono text-zinc-500 uppercase">Chest Reactor Core</label>
+              <div className="flex gap-2">
+                {[
+                  { hex: '#F27D26', name: 'Standard Orange' },
+                  { hex: '#A855F7', name: 'Void Purple' },
+                  { hex: '#06B6D4', name: 'Hydro Cyan' },
+                  { hex: '#10B981', name: 'Bio Green' },
+                  { hex: '#F43F5E', name: 'Thermal Red' }
+                ].map((color) => (
+                  <button
+                    key={color.hex}
+                    onClick={() => {
+                      setGear({ ...gear, chestColor: color.hex });
+                      playUISfx('click');
+                    }}
+                    className={`w-6 h-6 rounded border transition-all ${
+                      gear.chestColor === color.hex 
+                        ? 'border-[#F27D26] scale-110 shadow-[0_0_8px_rgba(242,125,38,0.3)]' 
+                        : 'border-transparent opacity-60 hover:opacity-100'
+                    }`}
+                    style={{ backgroundColor: color.hex }}
+                    title={color.name}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Section 2: Force Fields & Systems */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 border-b border-zinc-800 pb-2">
+              <Layers size={14} className="text-[#F27D26]" />
+              <h2 className="text-xs font-bold tracking-wider font-mono text-zinc-400 uppercase">SHIELD / SUBSYSTEMS</h2>
+            </div>
+
+            <div className="space-y-3">
+              {/* Force Shield */}
+              <button
+                onClick={() => {
+                  setGear({ ...gear, hasShield: !gear.hasShield });
+                  playUISfx('toggle');
+                }}
+                className="w-full flex items-center justify-between p-2.5 bg-zinc-900 border border-zinc-800 rounded text-left transition hover:border-zinc-700"
+              >
+                <div className="flex items-center gap-2.5">
+                  <Shield size={14} className={gear.hasShield ? 'text-cyan-400' : 'text-zinc-500'} />
+                  <span className="text-xs font-mono uppercase tracking-wide">Dynamic Force Shield</span>
+                </div>
+                <div className={`w-8 h-4 rounded-full p-0.5 transition-colors duration-200 ${gear.hasShield ? 'bg-cyan-500' : 'bg-zinc-700'}`}>
+                  <div className={`bg-white w-3 h-3 rounded-full shadow transition-transform duration-200 transform ${gear.hasShield ? 'translate-x-4' : 'translate-x-0'}`} />
+                </div>
+              </button>
+
+              {/* Jetpack */}
+              <button
+                onClick={() => {
+                  setGear({ ...gear, hasJetpack: !gear.hasJetpack });
+                  playUISfx('toggle');
+                }}
+                className="w-full flex items-center justify-between p-2.5 bg-zinc-900 border border-zinc-800 rounded text-left transition hover:border-zinc-700"
+              >
+                <div className="flex items-center gap-2.5">
+                  <Zap size={14} className={gear.hasJetpack ? 'text-amber-400' : 'text-zinc-500'} />
+                  <span className="text-xs font-mono uppercase tracking-wide">Backpack Jetpack Booster</span>
+                </div>
+                <div className={`w-8 h-4 rounded-full p-0.5 transition-colors duration-200 ${gear.hasJetpack ? 'bg-amber-500' : 'bg-zinc-700'}`}>
+                  <div className={`bg-white w-3 h-3 rounded-full shadow transition-transform duration-200 transform ${gear.hasJetpack ? 'translate-x-4' : 'translate-x-0'}`} />
+                </div>
+              </button>
+            </div>
+          </div>
+
+          {/* Section 3: Weapon Selection */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 border-b border-zinc-800 pb-2">
+              <Swords size={14} className="text-[#F27D26]" />
+              <h2 className="text-xs font-bold tracking-wider font-mono text-zinc-400 uppercase">WEAPONRY SYSTEM</h2>
+            </div>
+            
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { type: 'NONE', label: 'None' },
+                { type: 'PLASMA_BLADE', label: 'Plasma Blade' },
+                { type: 'BLASTER', label: 'Blaster Pistol' }
+              ].map((wpn) => (
+                <button
+                  key={wpn.type}
+                  onClick={() => {
+                    setGear({ ...gear, weaponType: wpn.type as any });
+                    playUISfx('click');
+                  }}
+                  className={`py-2 px-1 border rounded text-[10px] font-mono uppercase text-center transition ${
+                    gear.weaponType === wpn.type 
+                      ? 'border-[#F27D26] bg-[#F27D26]/10 text-white font-bold' 
+                      : 'border-zinc-800 bg-zinc-900 text-zinc-500 hover:border-zinc-700 hover:text-zinc-300'
+                  }`}
+                >
+                  {wpn.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Launch Button Action */}
+        <div className="p-5 border-t border-zinc-850 bg-black/50">
+          <button
+            onClick={() => {
+              playUISfx('launch');
+              onStartGame(gear);
+            }}
+            className="w-full py-3 bg-gradient-to-r from-orange-600 to-[#F27D26] hover:from-orange-500 hover:to-orange-600 border border-orange-500 hover:border-orange-400 text-white font-bold font-mono text-xs tracking-wider uppercase rounded shadow-lg flex items-center justify-center gap-2 hover:shadow-[0_0_20px_rgba(242,125,38,0.45)] transition cursor-pointer"
+          >
+            <Play size={14} fill="currentColor" />
+            Launch Runner Mission
+            <ChevronRight size={14} />
+          </button>
+        </div>
+      </div>
+
+      {/* RIGHT: Immersive 3D Viewer Area */}
+      <div className="flex-1 relative flex flex-col min-h-0">
+        {/* Hologram visualizer grid overlay */}
+        <div className="absolute inset-0 z-0 bg-radial-gradient from-transparent to-[#030712] opacity-80 pointer-events-none" />
+        
+        {/* Babylon 3D Canvas */}
+        <canvas ref={canvasRef} className="w-full h-full outline-none z-0" />
+
+        {/* 3D Action HUD / Mode Control Buttons */}
+        <div className="absolute bottom-5 left-5 right-5 z-20 flex flex-col md:flex-row gap-3 justify-between items-center pointer-events-auto">
+          {/* Active animation selection */}
+          <div className="bg-black/80 border border-zinc-800/80 p-2 rounded flex gap-1.5 backdrop-blur-md">
+            <button
+              onClick={() => {
+                setAnimationMode('IDLE');
+                playUISfx('click');
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 border rounded text-[10px] font-bold font-mono uppercase tracking-wider transition ${
+                animationMode === 'IDLE' 
+                  ? 'bg-[#F27D26] text-black border-[#F27D26]' 
+                  : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:bg-zinc-850'
+              }`}
+            >
+              <Compass size={11} />
+              Idle Stance
+            </button>
+            <button
+              onClick={() => {
+                setAnimationMode('JOGGING');
+                playUISfx('click');
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 border rounded text-[10px] font-bold font-mono uppercase tracking-wider transition ${
+                animationMode === 'JOGGING' 
+                  ? 'bg-[#F27D26] text-black border-[#F27D26]' 
+                  : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:bg-zinc-850'
+              }`}
+            >
+              <RefreshCw size={11} className={animationMode === 'JOGGING' ? 'animate-spin' : ''} />
+              Jog Test Cycle
+            </button>
+          </div>
+
+          {/* Model detection feedback */}
+          <div className="px-3 py-2 bg-black/80 border border-zinc-800/80 rounded flex items-center gap-2 backdrop-blur-md">
+            <Eye size={12} className="text-[#F27D26] animate-pulse" />
+            <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider">
+              Asset Source: <span className="text-white font-bold font-mono">/src/components/idle.glb</span>
+            </span>
+          </div>
+        </div>
+
+        {/* Technical crosshair and decorations */}
+        <div className="absolute inset-x-12 top-12 bottom-24 border border-cyan-500/10 pointer-events-none flex items-center justify-center">
+          <div className="absolute top-0 left-0 w-3 h-3 border-t-2 border-l-2 border-[#F27D26]/40" />
+          <div className="absolute top-0 right-0 w-3 h-3 border-t-2 border-r-2 border-[#F27D26]/40" />
+          <div className="absolute bottom-0 left-0 w-3 h-3 border-b-2 border-l-2 border-[#F27D26]/40" />
+          <div className="absolute bottom-0 right-0 w-3 h-3 border-b-2 border-r-2 border-[#F27D26]/40" />
+        </div>
+      </div>
     </div>
   );
 }

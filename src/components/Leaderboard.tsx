@@ -1,206 +1,182 @@
-import React, { useEffect, useState } from 'react';
-import { getHighScores, saveHighScore, isSupabaseConfigured } from '../lib/supabase';
-import { ScoreEntry } from '../types';
-import { Database, Sparkles, Terminal, RefreshCw, Trophy, UserPlus, Info } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Trophy, RefreshCw, Star, Terminal, User, Send, ChevronRight } from 'lucide-react';
+
+interface ScoreEntry {
+  id: string;
+  codename: string;
+  score: number;
+  distance: number;
+  date: string;
+}
 
 interface LeaderboardProps {
   currentScore: number;
   currentDistance: number;
-  characterClass: string;
-  onRefreshTrigger?: number; // External dependency to trigger scoring re-fetches
+  onRestart: () => void;
+  onExitLounge: () => void;
 }
 
-export function Leaderboard({ currentScore, currentDistance, characterClass, onRefreshTrigger }: LeaderboardProps) {
+export default function Leaderboard({
+  currentScore,
+  currentDistance,
+  onRestart,
+  onExitLounge
+}: LeaderboardProps) {
+  const [codename, setCodename] = useState<string>('');
+  const [hasSubmitted, setHasSubmitted] = useState<boolean>(false);
   const [scores, setScores] = useState<ScoreEntry[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [submitting, setSubmitting] = useState<boolean>(false);
-  const [submitted, setSubmitted] = useState<boolean>(false);
-  const [username, setUsername] = useState<string>('');
-  const [isRealDb, setIsRealDb] = useState<boolean>(false);
-  const [statusMessage, setStatusMessage] = useState<string>('');
-
-  const hasDirectSupabase = isSupabaseConfigured();
-
-  const loadScores = async () => {
-    setLoading(true);
-    try {
-      const response = await getHighScores();
-      setScores(response.data);
-      setIsRealDb(response.realDatabase);
-    } catch (e) {
-      console.error('Error fetching high scores:', e);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   useEffect(() => {
-    loadScores();
-  }, [onRefreshTrigger]);
-
-  const handleSubmitScore = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!username.trim() || submitting || submitted) return;
-
-    setSubmitting(true);
-    try {
-      const durationSeconds = Math.floor(currentDistance / 15); // Simulated duration
-      const payload: ScoreEntry = {
-        username: username.trim().substring(0, 16),
-        score: currentScore,
-        distance: parseFloat(currentDistance.toFixed(1)),
-        duration_seconds: durationSeconds,
-        character_class: characterClass
-      };
-
-      const result = await saveHighScore(payload);
-      if (result.success) {
-        setSubmitted(true);
-        setStatusMessage(result.realDatabase 
-          ? '✔ Core Entry Consigned to live Supabase ledger database!' 
-          : '✔ Saved locally. Connect your Supabase keys in .env for global scoreboard sync!'
-        );
-        loadScores();
-      } else {
-        setStatusMessage(`ERROR: ${result.error || 'Failed to submit high score'}`);
+    // Load local storage high scores
+    const saved = localStorage.getItem('cyber_runner_scores');
+    if (saved) {
+      try {
+        setScores(JSON.parse(saved));
+      } catch (e) {
+        setScores([]);
       }
-    } catch (err: any) {
-      setStatusMessage(`EXCEPTION: ${err.message || 'Submission error'}`);
-    } finally {
-      setSubmitting(false);
+    } else {
+      // Default initial score lists
+      const defaultScores: ScoreEntry[] = [
+        { id: '1', codename: 'KAY_NEON', score: 12500, distance: 410, date: '2026-06-25' },
+        { id: '2', codename: 'VALER_X', score: 8700, distance: 290, date: '2026-06-24' },
+        { id: '3', codename: 'CORT_EX', score: 5600, distance: 180, date: '2026-06-23' }
+      ];
+      localStorage.setItem('cyber_runner_scores', JSON.stringify(defaultScores));
+      setScores(defaultScores);
     }
+  }, []);
+
+  const handleSubmitScore = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!codename.trim()) return;
+
+    const newEntry: ScoreEntry = {
+      id: Math.random().toString(),
+      codename: codename.trim().toUpperCase(),
+      score: currentScore,
+      distance: currentDistance,
+      date: new Date().toISOString().split('T')[0]
+    };
+
+    const updated = [...scores, newEntry]
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 8); // Keep top 8 scores
+
+    localStorage.setItem('cyber_runner_scores', JSON.stringify(updated));
+    setScores(updated);
+    setHasSubmitted(true);
   };
 
   return (
-    <div className="glass-panel border-stone-850/60 rounded-xl p-5 flex flex-col relative overflow-hidden bg-black/45 select-text">
-      
-      {/* Sync ledger database banner */}
-      <div className="flex items-center justify-between border-b border-white/10 pb-3 mb-4">
-        <h2 className="text-xs font-mono font-bold tracking-[0.2em] text-[#F27D26] uppercase flex items-center gap-2">
-          <Trophy size={13} className="text-[#F27D26]" />
-          Abyssum High Score Board
-        </h2>
-        <div className="flex items-center gap-2">
-          <span className={`text-[8px] font-mono px-2 py-0.5 rounded font-black flex items-center gap-1 ${
-            isRealDb 
-              ? 'bg-green-950/40 border border-green-800 text-green-400' 
-              : 'bg-zinc-950 border border-zinc-800 text-zinc-550'
-          }`}>
-            <span className={`w-1 h-1 rounded-full ${isRealDb ? 'bg-green-400 animate-pulse' : 'bg-zinc-400'}`} />
-            {isRealDb ? 'SUPABASE ACTIVE' : 'LOCAL OFFLINE CACHE'}
-          </span>
-          <button 
-            onClick={loadScores}
-            className="text-zinc-500 hover:text-[#F27D26] cursor-pointer"
-            title="Reload leaderboard ledger"
-          >
-            <RefreshCw size={11} className={loading ? "animate-spin" : ""} />
-          </button>
+    <div className="w-full max-w-lg bg-black/85 border border-zinc-800 rounded-lg p-6 backdrop-blur-md relative overflow-hidden flex flex-col gap-6">
+      <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-[#F27D26] to-transparent animate-pulse" />
+
+      {/* Header */}
+      <div className="flex items-center gap-3 border-b border-zinc-800 pb-4">
+        <div className="p-2 bg-[#F27D26]/10 border border-[#F27D26]/30 rounded">
+          <Terminal className="text-[#F27D26] w-6 h-6" />
+        </div>
+        <div>
+          <h2 className="text-sm font-bold tracking-wider font-mono text-[#F27D26] uppercase">TACTICAL SUMMARY</h2>
+          <p className="text-[10px] text-zinc-500 font-mono">PILOT_DEBRIEFING_LOG</p>
         </div>
       </div>
 
-      {/* Submission Panel block (only show if player completed a run with positive points and haven't submitted yet) */}
-      {currentScore > 0 && !submitted && (
-        <form onSubmit={handleSubmitScore} className="mb-5 p-3.5 bg-[#F27D26]/10 border border-[#F27D26]/20 rounded-lg flex flex-col gap-2 relative">
-          <div className="absolute top-1 right-2 text-[6px] font-mono text-[#F27D26]/60 uppercase tracking-widest">SUBMISSION PROTOCOL</div>
-          <div className="text-[10px] text-[#ffd3b0] font-mono flex items-center gap-1">
-            <Sparkles size={11} className="text-[#F27D26] animate-pulse" />
-            <span>Consign Current Run: <strong className="text-white">{currentScore.toLocaleString()} pts</strong> ({Math.floor(currentDistance)}m)</span>
-          </div>
+      {/* Score details */}
+      <div className="grid grid-cols-2 gap-4 bg-zinc-900/40 p-4 border border-zinc-850 rounded">
+        <div>
+          <span className="text-[10px] text-zinc-500 uppercase tracking-wider block font-bold mb-1">Final Score</span>
+          <span className="text-2xl font-bold font-mono text-white text-glow-orange">{currentScore} pts</span>
+        </div>
+        <div>
+          <span className="text-[10px] text-zinc-500 uppercase tracking-wider block font-bold mb-1">Distance Travelled</span>
+          <span className="text-2xl font-bold font-mono text-cyan-400 text-glow-cyan">{Math.floor(currentDistance)} m</span>
+        </div>
+      </div>
 
-          <div className="flex gap-2.5 mt-1">
-            <input
-              type="text"
-              placeholder="ENTER COAXIAL USERNAME..."
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className="bg-black border border-zinc-800 rounded px-2.5 py-1.5 text-xs font-mono text-white placeholder-zinc-700 focus:outline-none focus:border-[#F27D26]/50 flex-1 uppercase"
-              required
-              disabled={submitting}
-              maxLength={16}
-            />
+      {/* Submit Codename Form */}
+      {!hasSubmitted ? (
+        <form onSubmit={handleSubmitScore} className="space-y-3">
+          <label className="text-[10px] text-zinc-400 font-mono uppercase tracking-wide block font-bold">
+            Register Pilot Codename in Local Database
+          </label>
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <User className="absolute left-3 top-2.5 w-4 h-4 text-zinc-500" />
+              <input
+                type="text"
+                maxLength={10}
+                required
+                value={codename}
+                onChange={(e) => setCodename(e.target.value.replace(/[^a-zA-Z0-9_-]/g, ''))}
+                placeholder="PILOT_CODENAME"
+                className="w-full pl-9 pr-4 py-2.5 bg-zinc-950 border border-zinc-800 focus:border-[#F27D26] text-white placeholder-zinc-600 rounded text-xs font-mono tracking-wider outline-none uppercase transition"
+              />
+            </div>
             <button
               type="submit"
-              disabled={submitting || !username.trim()}
-              className="py-1.5 px-4 bg-[#F27D26]/10 hover:bg-[#F27D26]/20 border border-[#F27D26]/30 text-[10px] font-mono font-bold uppercase tracking-widest text-[#F27D26] rounded cursor-pointer disabled:opacity-40"
+              className="px-4 py-2.5 bg-[#F27D26]/15 hover:bg-[#F27D26]/30 border border-[#F27D26]/50 hover:border-[#F27D26] text-[#F27D26] hover:text-white text-xs font-bold font-mono tracking-wide rounded uppercase transition duration-150 flex items-center gap-1.5 cursor-pointer"
             >
-              {submitting ? 'SENDING...' : 'REGISTER'}
+              <Send size={12} />
+              Submit
             </button>
           </div>
         </form>
-      )}
-
-      {/* Success / Error Status Response */}
-      {statusMessage && (
-        <div className="mb-4 p-2 bg-zinc-950 border border-zinc-900 rounded text-[9px] font-mono text-zinc-400">
-          {statusMessage}
+      ) : (
+        <div className="text-xs font-mono text-emerald-400 flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/30 p-3 rounded">
+          <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
+          PILOT CODENAME SUBMITTED SUCCESSFULLY_
         </div>
       )}
 
-      {/* Scores Grid table entries */}
-      <div className="flex-1 overflow-y-auto no-scrollbar max-h-[300px] flex flex-col gap-1.5">
-        {loading ? (
-          <div className="flex flex-col items-center justify-center py-12 gap-2 text-[#F27D26]/40 font-mono text-[10px]">
-            <RefreshCw size={18} className="animate-spin text-[#F27D26]" />
-            <span>RETRIEVING LEDGER CACHE...</span>
-          </div>
-        ) : scores.length === 0 ? (
-          <div className="py-12 text-center text-[10px] font-mono text-zinc-550 uppercase">
-            No entries catalogued. Launch dynamic run.
-          </div>
-        ) : (
-          scores.map((score, index) => {
-            const isTop3 = index < 3;
-            const markerColors = [
-              'text-yellow-450 font-black',  // 1st Gold
-              'text-zinc-350 font-black',    // 2nd Silver
-              'text-amber-600 font-bold'     // 3rd Bronze
-            ];
-            const marker = isTop3 ? `0${index + 1}` : `${index + 1}`;
-
-            return (
-              <div 
-                key={score.id || index}
-                className="flex items-center justify-between p-2.5 rounded bg-zinc-950/60 border border-zinc-900/60 hover:bg-zinc-900/40 transition-colors"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <span className={`text-[10px] font-mono shrink-0 w-6 ${isTop3 ? markerColors[index] : 'text-zinc-600'}`}>
-                    #{marker}
-                  </span>
-                  
-                  <div className="min-w-0">
-                    <span className="text-[11px] font-mono text-zinc-100 font-medium block uppercase tracking-wide truncate">
-                      {score.username}
-                    </span>
-                    <span className="text-[8px] text-zinc-550 block uppercase truncate">
-                      {score.character_class} // {Math.floor(score.distance)}m
-                    </span>
-                  </div>
-                </div>
-
-                <div className="text-right shrink-0">
-                  <span className="text-xs font-mono font-bold text-[#F27D26] glow-cyan">
-                    {score.score.toLocaleString()}
-                  </span>
-                  <span className="text-[7.5px] text-zinc-650 block uppercase tracking-wider">
-                    {score.created_at ? new Date(score.created_at).toLocaleDateString() : 'ARCHIVE_SEED'}
-                  </span>
-                </div>
+      {/* Leaderboard Entries */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-1.5 text-[10px] text-zinc-500 font-mono uppercase tracking-wider font-bold border-b border-zinc-800 pb-1.5">
+          <Trophy size={11} className="text-[#F27D26]" />
+          Top Pilot Standings (Local Storage)
+        </div>
+        
+        <div className="space-y-1.5 max-h-[160px] overflow-y-auto pr-1">
+          {scores.map((item, idx) => (
+            <div 
+              key={item.id}
+              className={`flex justify-between items-center px-3 py-2 border rounded font-mono text-xs ${
+                item.score === currentScore && item.codename === codename.toUpperCase()
+                  ? 'bg-[#F27D26]/10 border-[#F27D26] text-white font-bold'
+                  : 'bg-zinc-950/40 border-zinc-900 text-zinc-400'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <span className="text-[10px] font-bold text-zinc-600 min-w-[14px]">#{idx + 1}</span>
+                <span className="tracking-wide">{item.codename}</span>
               </div>
-            );
-          })
-        )}
-      </div>
-
-      <div className="mt-4 pt-3.5 border-t border-zinc-900/80 flex flex-col gap-1.5 text-[8.5px] font-mono text-[#F27D26]/80 rounded bg-stone-950/20 p-2 border border-stone-900">
-        <div className="flex items-start gap-1.5">
-          <Info size={12} className="shrink-0 text-[#F27D26]" />
-          <p className="leading-relaxed leading-normal">
-            To synchronize scores globally online, input your live database credentials in .env inside: <code className="bg-black px-1 border border-zinc-850 text-[#F27D26]">SUPABASE_URL</code> and <code className="bg-black px-1 border border-zinc-850 text-[#F27D26]">SUPABASE_ANON_KEY</code>.
-          </p>
+              <div className="flex items-center gap-3">
+                <span>{item.distance}m</span>
+                <span className="text-[#F27D26] font-bold tracking-wider">{item.score}</span>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
+      {/* Action triggers */}
+      <div className="flex gap-3 border-t border-zinc-800 pt-4 mt-2">
+        <button
+          onClick={onRestart}
+          className="flex-1 py-2.5 bg-zinc-900 hover:bg-zinc-850 border border-zinc-800 hover:border-zinc-700 text-zinc-300 hover:text-white font-bold font-mono text-xs uppercase tracking-wide rounded transition flex items-center justify-center gap-2 cursor-pointer"
+        >
+          <RefreshCw size={13} />
+          Deploy Again
+        </button>
+        <button
+          onClick={onExitLounge}
+          className="flex-1 py-2.5 bg-gradient-to-r from-orange-600 to-[#F27D26] hover:from-orange-500 hover:to-orange-600 border border-orange-500 text-white font-bold font-mono text-xs uppercase tracking-wide rounded shadow transition flex items-center justify-center gap-2 cursor-pointer"
+        >
+          Lounge Terminal
+          <ChevronRight size={13} />
+        </button>
+      </div>
     </div>
   );
 }
