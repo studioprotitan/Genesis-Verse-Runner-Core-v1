@@ -20,7 +20,8 @@ import '@babylonjs/loaders/glTF';
 import '@babylonjs/inspector';
 import { GameState, Lane, ObstacleType, ObstacleData, PlayerState, WeaponType, CollectibleData } from '../types';
 
-const idleGlbUrl = '/idle.glb';
+const primaryGlbUrl = '/jog-fwd.glb';
+const fallbackGlbUrl = '/idle.glb';
 
 interface GameCanvasProps {
   gameState: GameState;
@@ -296,12 +297,19 @@ export default function GameCanvas({
       }
     };
 
-    // Parse the imported static asset URL for Babylon's loader
-    const lastSlash = idleGlbUrl.lastIndexOf('/');
-    const rootUrl = lastSlash !== -1 ? idleGlbUrl.substring(0, lastSlash + 1) : '';
-    const fileName = lastSlash !== -1 ? idleGlbUrl.substring(lastSlash + 1) : idleGlbUrl;
+    const loadGltfModel = (url: string): Promise<any> => {
+      const lastSlash = url.lastIndexOf('/');
+      const rootUrl = lastSlash !== -1 ? url.substring(0, lastSlash + 1) : '';
+      const fileName = lastSlash !== -1 ? url.substring(lastSlash + 1) : url;
+      return SceneLoader.ImportMeshAsync('', rootUrl, fileName, scene);
+    };
 
-    SceneLoader.ImportMeshAsync('', rootUrl, fileName, scene)
+    // Load character model
+    loadGltfModel(primaryGlbUrl)
+      .catch((err) => {
+        console.warn(`Failed to load primary jog glTF (${primaryGlbUrl}), trying fallback idle glTF (${fallbackGlbUrl}):`, err);
+        return loadGltfModel(fallbackGlbUrl);
+      })
       .then((result) => {
         console.log('GLTF character model loaded successfully in GameCanvas:', result);
         loadedRoot = result.meshes[0];
@@ -322,24 +330,29 @@ export default function GameCanvas({
 
         // Store animation groups
         const animGroups = result.animationGroups;
-        animGroups.forEach(g => {
+        animGroups.forEach((g: any) => {
           g.stop();
           g.weight = 0.0;
         });
 
         const findAnim = (keywords: string[]) => {
-          return animGroups.find(g => {
+          return animGroups.find((g: any) => {
             const n = g.name.toLowerCase();
-            return keywords.some(kw => n.includes(kw));
+            return keywords.some((kw: string) => n.includes(kw));
           });
         };
 
         loadedAnims.idle = findAnim(['idle', 'hero']);
-        loadedAnims.running = findAnim(['walk_fwd', 'run', 'jog', 'walk', 'cst-ert-walk-a']);
+        loadedAnims.running = findAnim(['walk_fwd', 'run', 'jog', 'walk', 'cst-ert-walk-a', 'jog-fwd', 'jog_fwd']);
         loadedAnims.jumping = findAnim(['jump', 'leap', 'air']);
         loadedAnims.sliding = findAnim(['slide', 'crouch']);
         loadedAnims.stagger = findAnim(['damage', 'stagger', 'hit', 'pain']);
         loadedAnims.dead = findAnim(['crash', 'dead', 'die', 'collapse']);
+
+        // Fallback for running animation if no explicit keyword matched
+        if (!loadedAnims.running && animGroups.length > 0) {
+          loadedAnims.running = animGroups[0];
+        }
 
         // Set initial running animation
         if (loadedAnims.running) {
@@ -353,7 +366,7 @@ export default function GameCanvas({
         }
       })
       .catch((err) => {
-        console.warn('Failed to load character glTF. Falling back to high-detail procedural meshes:', err);
+        console.warn('Failed to load any character glTF. Falling back to high-detail procedural meshes:', err);
       });
 
     // 7. Dynamic Obstacles Spawning & Pooling

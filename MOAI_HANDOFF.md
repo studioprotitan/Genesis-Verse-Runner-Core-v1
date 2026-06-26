@@ -26,7 +26,8 @@ This handoff document details the state, architecture, and current execution of 
 ├── vite.config.ts            # Vite config (serving development bundle)
 ├── index.html                # Entry HTML mount point
 ├── public/
-│   └── idle.glb              # Public static model folder and files (copied directly to dist root by Vite)
+│   ├── idle.glb              # Public static model folder and files (copied directly to dist root by Vite)
+│   └── jog-fwd.glb           # Public static jogging animation/model file (copied directly to dist root by Vite)
 ├── src/
 │   ├── main.tsx              # React client bootstrapping
 │   ├── index.css             # Tailwind CSS entries and custom CSS variables

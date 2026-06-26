@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 
 const idleGlbUrl = '/idle.glb';
+const jogGlbUrl = '/jog-fwd.glb';
 
 interface PreDeploymentLoungeProps {
   onStartGame: (selectedGear: any) => void;
@@ -50,7 +51,11 @@ export default function PreDeploymentLounge({ onStartGame, savedHighScore = 0 }:
     hudRing?: Mesh;
     protectionShieldHull?: Mesh;
     hexForceField?: Mesh;
+    jetpack?: Mesh;
   }>({});
+
+  const loadedGltfRootRef = useRef<any>(null);
+  const hasLoadedGltfRef = useRef<boolean>(false);
 
   const [loadingProgress, setLoadingProgress] = useState<number>(0);
   const [loadingStep, setLoadingStep] = useState<string>('Booting core terminal...');
@@ -307,63 +312,7 @@ export default function PreDeploymentLounge({ onStartGame, savedHighScore = 0 }:
     jetpack.material = jetpackMat;
     jetpack.parent = characterRoot;
     jetpack.isVisible = gear.hasJetpack;
-
-    // Attempt to load idle.glb
-    const lastSlash = idleGlbUrl.lastIndexOf('/');
-    const rootUrl = lastSlash !== -1 ? idleGlbUrl.substring(0, lastSlash + 1) : '';
-    const fileName = lastSlash !== -1 ? idleGlbUrl.substring(lastSlash + 1) : idleGlbUrl;
-
-    let hasLoadedGltf = false;
-    SceneLoader.ImportMeshAsync('', rootUrl, fileName, scene)
-      .then((result) => {
-        console.log('GLTF loaded inside Pre-deployment Viewer:', result);
-        const loadedRoot = result.meshes[0];
-        loadedRoot.parent = characterRoot;
-        loadedRoot.scaling = new Vector3(1, 1, 1);
-        loadedRoot.position = Vector3.Zero();
-
-        // Hide procedural components to use glTF model
-        coreBody.isVisible = false;
-        headVisor.isVisible = false;
-        chestPlate.isVisible = false;
-        armL.isVisible = false;
-        armR.isVisible = false;
-        legL.isVisible = false;
-        legR.isVisible = false;
-        jetpack.isVisible = false;
-
-        hasLoadedGltf = true;
-
-        // Extract Animations
-        const animGroups = result.animationGroups;
-        animGroups.forEach(g => g.stop());
-
-        const idle = animGroups.find(g => {
-          const n = g.name.toLowerCase();
-          return n.includes('idle') || n.includes('hero');
-        });
-        const jog = animGroups.find(g => {
-          const n = g.name.toLowerCase();
-          return n.includes('walk') || n.includes('run') || n.includes('jog') || n.includes('cst-ert-walk-a');
-        });
-
-        loadedAnimsRef.current = {
-          idleAnim: idle,
-          jogAnim: jog,
-          allGroups: animGroups
-        };
-
-        // Start initial animation based on current mode
-        if (animationModeRef.current === 'IDLE' && idle) {
-          idle.start(true);
-        } else if (animationModeRef.current === 'JOGGING') {
-          if (jog) jog.start(true);
-          else if (idle) idle.start(true);
-        }
-      })
-      .catch((err) => {
-        console.warn('Could not load local idle.glb. Running ultra-beautiful procedural render:', err);
-      });
+    meshesRef.current.jetpack = jetpack;
 
     // 7. Render Loop with Procedural swing / walk animations
     let time = 0;
@@ -377,7 +326,7 @@ export default function PreDeploymentLounge({ onStartGame, savedHighScore = 0 }:
       // Float the HUD ring above head
       hudRing.position.y = 2.15 + Math.sin(time * 2.0) * 0.04;
 
-      if (!hasLoadedGltf) {
+      if (!hasLoadedGltfRef.current) {
         // Run procedural skeleton cycle based on selection
         if (animationModeRef.current === 'IDLE') {
           // Slow dynamic breathing
@@ -463,21 +412,99 @@ export default function PreDeploymentLounge({ onStartGame, savedHighScore = 0 }:
     }
   }, [gear]);
 
-  // Synchronize Animations Mode
+  // Load the glTF model dynamically based on animationMode
   useEffect(() => {
-    const { idleAnim, jogAnim, allGroups } = loadedAnimsRef.current;
-    if (allGroups && allGroups.length > 0) {
-      allGroups.forEach(g => g.stop());
-      if (animationMode === 'IDLE') {
-        if (idleAnim) idleAnim.start(true);
-        else allGroups[0].start(true);
-      } else if (animationMode === 'JOGGING') {
-        if (jogAnim) jogAnim.start(true);
-        else if (idleAnim) idleAnim.start(true);
-        else allGroups[0].start(true);
+    if (isLoading || !sceneRef.current || !meshesRef.current.characterRoot) return;
+    const scene = sceneRef.current;
+    const characterRoot = meshesRef.current.characterRoot;
+
+    // 1. Dispose any existing loaded model root
+    if (loadedGltfRootRef.current) {
+      try {
+        loadedGltfRootRef.current.dispose();
+      } catch (e) {
+        console.warn('Error disposing old model root:', e);
       }
+      loadedGltfRootRef.current = null;
     }
-  }, [animationMode]);
+    hasLoadedGltfRef.current = false;
+
+    // 2. Temporarily show procedural mesh placeholders while loading
+    if (meshesRef.current.coreBody) meshesRef.current.coreBody.isVisible = true;
+    if (meshesRef.current.headVisor) meshesRef.current.headVisor.isVisible = true;
+    if (meshesRef.current.chestPlate) meshesRef.current.chestPlate.isVisible = true;
+    if (meshesRef.current.armL) meshesRef.current.armL.isVisible = true;
+    if (meshesRef.current.armR) meshesRef.current.armR.isVisible = true;
+    if (meshesRef.current.legL) meshesRef.current.legL.isVisible = true;
+    if (meshesRef.current.legR) meshesRef.current.legR.isVisible = true;
+    if (meshesRef.current.jetpack) meshesRef.current.jetpack.isVisible = gear.hasJetpack;
+
+    // Choose the target model
+    const targetModelUrl = animationMode === 'IDLE' ? idleGlbUrl : jogGlbUrl;
+    const lastSlash = targetModelUrl.lastIndexOf('/');
+    const rootUrl = lastSlash !== -1 ? targetModelUrl.substring(0, lastSlash + 1) : '';
+    const fileName = lastSlash !== -1 ? targetModelUrl.substring(lastSlash + 1) : targetModelUrl;
+
+    SceneLoader.ImportMeshAsync('', rootUrl, fileName, scene)
+      .then((result) => {
+        console.log(`GLTF model (${animationMode}) loaded successfully in Pre-deployment Viewer:`, result);
+        const loadedRoot = result.meshes[0];
+        loadedRoot.parent = characterRoot;
+        loadedRoot.scaling = new Vector3(1, 1, 1);
+        loadedRoot.position = Vector3.Zero();
+
+        // Save reference to dispose later
+        loadedGltfRootRef.current = loadedRoot;
+        hasLoadedGltfRef.current = true;
+
+        // Hide procedural components to use glTF model
+        if (meshesRef.current.coreBody) meshesRef.current.coreBody.isVisible = false;
+        if (meshesRef.current.headVisor) meshesRef.current.headVisor.isVisible = false;
+        if (meshesRef.current.chestPlate) meshesRef.current.chestPlate.isVisible = false;
+        if (meshesRef.current.armL) meshesRef.current.armL.isVisible = false;
+        if (meshesRef.current.armR) meshesRef.current.armR.isVisible = false;
+        if (meshesRef.current.legL) meshesRef.current.legL.isVisible = false;
+        if (meshesRef.current.legR) meshesRef.current.legR.isVisible = false;
+        if (meshesRef.current.jetpack) meshesRef.current.jetpack.isVisible = false;
+
+        // Extract Animations
+        const animGroups = result.animationGroups;
+        animGroups.forEach(g => g.stop());
+
+        const idle = animGroups.find(g => {
+          const n = g.name.toLowerCase();
+          return n.includes('idle') || n.includes('hero');
+        });
+        let jog = animGroups.find(g => {
+          const n = g.name.toLowerCase();
+          return n.includes('walk') || n.includes('run') || n.includes('jog') || n.includes('cst-ert-walk-a');
+        });
+
+        // If we are loading the jog-fwd.glb, and didn't find jog specifically by name, use first anim group
+        if (!jog && animationMode === 'JOGGING' && animGroups.length > 0) {
+          jog = animGroups[0];
+        }
+
+        loadedAnimsRef.current = {
+          idleAnim: idle,
+          jogAnim: jog,
+          allGroups: animGroups
+        };
+
+        // Start initial animation based on current mode
+        if (animationMode === 'IDLE') {
+          if (idle) idle.start(true);
+          else if (animGroups.length > 0) animGroups[0].start(true);
+        } else if (animationMode === 'JOGGING') {
+          if (jog) jog.start(true);
+          else if (idle) idle.start(true);
+          else if (animGroups.length > 0) animGroups[0].start(true);
+        }
+      })
+      .catch((err) => {
+        console.warn(`Could not load local model (${targetModelUrl}). Running ultra-beautiful procedural render:`, err);
+      });
+  }, [isLoading, animationMode]);
 
   return (
     <div className="relative w-full h-screen bg-[#030712] text-zinc-100 flex flex-col md:flex-row overflow-hidden">
@@ -784,7 +811,7 @@ export default function PreDeploymentLounge({ onStartGame, savedHighScore = 0 }:
           <div className="px-3 py-2 bg-black/80 border border-zinc-800/80 rounded flex items-center gap-2 backdrop-blur-md">
             <Eye size={12} className="text-[#F27D26] animate-pulse" />
             <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider">
-              Asset Source: <span className="text-white font-bold font-mono">/src/components/idle.glb</span>
+              Asset Source: <span className="text-white font-bold font-mono">{animationMode === 'IDLE' ? '/public/idle.glb' : '/public/jog-fwd.glb'}</span>
             </span>
           </div>
         </div>
