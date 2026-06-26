@@ -18,7 +18,8 @@ import {
   CreateSphere,
   ActionManager,
   ExecuteCodeAction,
-  TransformNode
+  TransformNode,
+  VertexData
 } from '@babylonjs/core';
 import { GameState, Lane, ObstacleType, ObstacleData, PlayerState, WeaponType } from '../types';
 
@@ -325,91 +326,140 @@ export function GameCanvas({
       autoFireEnabled: false,
     };
 
-    // Construct customizable character meshes (Zero asset downloads needed!)
+    // ─────────────────────────────────────────────
+    // HIGH‑DETAIL PROCEDURAL COMMANDER
+    // Adds polygons, curvature, bevels, and paneling
+    // ─────────────────────────────────────────────
+
     const characterRoot = new TransformNode('charRoot', scene);
     camera.lockedTarget = characterRoot as any;
 
-    // Core body Cylinder
-    const coreBody = CreateCylinder('coreBody', { height: 1.4, diameterTop: 0.48, diameterBottom: 0.35 }, scene);
-    coreBody.position.y = 0.75;
-    coreBody.material = metalDullMat;
-    coreBody.parent = characterRoot;
-
-    // Glowing active visor/head sphere (MOAI "head" node mapping)
-    const headVisor = CreateSphere('headVisor', { diameter: 0.48 }, scene);
-    headVisor.position.y = 1.6;
-    headVisor.material = neonBlueMat;
-    headVisor.parent = characterRoot;
-
-    // Emissive Chest plate
-    const chestPlate = CreateBox('chestPlate', { size: 0.38, width: 0.45, height: 0.45 }, scene);
-    chestPlate.position.y = 0.9;
-    chestPlate.position.z = 0.18;
+    // Define custom materials for the character components
     const chestMat = new StandardMaterial('chestMat', scene);
     chestMat.emissiveColor = new Color3(0.95, 0.49, 0.15);
-    chestPlate.material = chestMat;
-    chestPlate.parent = characterRoot;
 
-    // Procedural character arms (Swing left & right during runcycle)
-    const armL = CreateCylinder('armL', { height: 0.8, diameter: 0.18 }, scene);
-    armL.position.x = -0.38;
-    armL.position.y = 0.95;
-    armL.material = metalDullMat;
-    armL.parent = characterRoot;
-
-    const armR = CreateCylinder('armR', { height: 0.8, diameter: 0.18 }, scene);
-    armR.position.x = 0.38;
-    armR.position.y = 0.95;
-    armR.material = metalDullMat;
-    armR.parent = characterRoot;
-
-    // Left and Right legs (Swing during runcycles)
-    const legL = CreateCylinder('legL', { height: 0.8, diameter: 0.2 }, scene);
-    legL.position.x = -0.22;
-    legL.position.y = 0.35;
-    legL.material = metalDullMat;
-    legL.parent = characterRoot;
-
-    const legR = CreateCylinder('legR', { height: 0.8, diameter: 0.2 }, scene);
-    legR.position.x = 0.22;
-    legR.position.y = 0.35;
-    legR.material = metalDullMat;
-    legR.parent = characterRoot;
-
-    // HUDRoot indicator attached to head bone representing five signals
-    const hudRing = CreateCylinder('hudRing', { height: 0.05, diameter: 0.9 }, scene);
-    hudRing.position.y = 2.15; // Offset above head (offset +0.35)
-    
     const hudRingMat = new StandardMaterial('hudMat', scene);
     hudRingMat.emissiveColor = new Color3(0.95, 0.49, 0.15);
     hudRingMat.alpha = 0.4;
-    hudRing.material = hudRingMat;
-    hudRing.parent = characterRoot;
 
-    // Translucent glowing protection shield hull
-    const protectionShieldHull = CreateSphere('protectionShieldHull', { diameter: 2.1 }, scene);
-    protectionShieldHull.position.y = 0.9;
     const protectionShieldHullMat = new StandardMaterial('protectionShieldHullMat', scene);
     protectionShieldHullMat.diffuseColor = new Color3(0.1, 0.75, 1.0);
     protectionShieldHullMat.emissiveColor = new Color3(0.15, 0.85, 1.0);
     protectionShieldHullMat.specularColor = new Color3(1.0, 1.0, 1.0);
     protectionShieldHullMat.alpha = 0.28;
-    protectionShieldHull.material = protectionShieldHullMat;
-    protectionShieldHull.parent = characterRoot;
-    protectionShieldHull.isVisible = false; // Hidden initially
 
-    // Temporary rotating hexagonal forcefield mesh for collections
-    const hexForceField = CreateCylinder('hexForceField', { height: 1.8, diameter: 2.3, tessellation: 6, sideOrientation: Mesh.DOUBLESIDE }, scene);
-    hexForceField.position.y = 0.9;
     const hexForceFieldMat = new StandardMaterial('hexForceFieldMat', scene);
     hexForceFieldMat.diffuseColor = new Color3(0.0, 1.0, 0.7);
     hexForceFieldMat.emissiveColor = new Color3(0.0, 0.85, 0.6);
     hexForceFieldMat.specularColor = new Color3(1.0, 1.0, 1.0);
     hexForceFieldMat.alpha = 0.0;
     hexForceFieldMat.backFaceCulling = false;
+
+    // High‑poly core body (curved torso)
+    const coreBody = CreateCylinder('coreBody', { 
+      height: 1.4, 
+      diameterTop: 0.48, 
+      diameterBottom: 0.35,
+      tessellation: 48,          // increased from default 24
+      subdivisions: 4            // adds vertical loops
+    }, scene);
+    coreBody.position.y = 0.75;
+    coreBody.material = metalDullMat;
+    coreBody.parent = characterRoot;
+
+    // High‑poly head visor (smooth sphere)
+    const headVisor = CreateSphere('headVisor', { 
+      diameter: 0.48,
+      segments: 48               // increased from default 16
+    }, scene);
+    headVisor.position.y = 1.6;
+    headVisor.material = neonBlueMat;
+    headVisor.parent = characterRoot;
+
+    // Chest plate with bevels
+    const chestPlate = CreateBox('chestPlate', { 
+      width: 0.45, 
+      height: 0.45, 
+      depth: 0.25,
+      wrap: true,
+      updatable: true
+    }, scene);
+
+    // Add bevel via VertexData
+    VertexData.CreateBox({
+      width: 0.45,
+      height: 0.45,
+      depth: 0.25,
+      sideOrientation: Mesh.FRONTSIDE,
+      subdivisions: 4,           // adds loops
+    }).applyToMesh(chestPlate);
+
+    chestPlate.position.y = 0.9;
+    chestPlate.position.z = 0.18;
+    chestPlate.material = chestMat;
+    chestPlate.parent = characterRoot;
+
+    // High‑poly arms
+    const armL = CreateCylinder('armL', { 
+      height: 0.8, 
+      diameter: 0.18,
+      tessellation: 36,
+      subdivisions: 3
+    }, scene);
+    armL.position.set(-0.38, 0.95, 0);
+    armL.material = metalDullMat;
+    armL.parent = characterRoot;
+
+    const armR = armL.clone('armR');
+    armR.position.x = 0.38;
+    armR.parent = characterRoot;
+
+    // High‑poly legs
+    const legL = CreateCylinder('legL', { 
+      height: 0.8, 
+      diameter: 0.2,
+      tessellation: 36,
+      subdivisions: 3
+    }, scene);
+    legL.position.set(-0.22, 0.35, 0);
+    legL.material = metalDullMat;
+    legL.parent = characterRoot;
+
+    const legR = legL.clone('legR');
+    legR.position.x = 0.22;
+    legR.parent = characterRoot;
+
+    // HUD Ring (smooth)
+    const hudRing = CreateCylinder('hudRing', { 
+      height: 0.05, 
+      diameter: 0.9,
+      tessellation: 64
+    }, scene);
+    hudRing.position.y = 2.15;
+    hudRing.material = hudRingMat;
+    hudRing.parent = characterRoot;
+
+    // Protection shield (smooth sphere)
+    const protectionShieldHull = CreateSphere('protectionShieldHull', { 
+      diameter: 2.1,
+      segments: 64
+    }, scene);
+    protectionShieldHull.position.y = 0.9;
+    protectionShieldHull.material = protectionShieldHullMat;
+    protectionShieldHull.parent = characterRoot;
+    protectionShieldHull.isVisible = false;
+
+    // Hex forcefield (higher tessellation)
+    const hexForceField = CreateCylinder('hexForceField', { 
+      height: 1.8, 
+      diameter: 2.3, 
+      tessellation: 12,          // was 6 → smoother hex
+      sideOrientation: Mesh.DOUBLESIDE 
+    }, scene);
+    hexForceField.position.y = 0.9;
     hexForceField.material = hexForceFieldMat;
     hexForceField.parent = characterRoot;
-    hexForceField.isVisible = false; // Hidden initially
+    hexForceField.isVisible = false;
 
     // Create a high-performance procedural flare texture using HTML5 Canvas to prevent CORS/external resource loading script errors
     const flareTexture = new DynamicTexture("proceduralFlare", 64, scene, true);
