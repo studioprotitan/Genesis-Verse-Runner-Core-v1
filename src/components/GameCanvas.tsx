@@ -20,8 +20,7 @@ import '@babylonjs/loaders/glTF';
 import '@babylonjs/inspector';
 import { GameState, Lane, ObstacleType, ObstacleData, PlayerState, WeaponType, CollectibleData } from '../types';
 
-// @ts-ignore
-import idleGlbUrl from '../models/idle.glb';
+const idleGlbUrl = '/idle.glb';
 
 interface GameCanvasProps {
   gameState: GameState;
