@@ -1,0 +1,6 @@
+{
+  "name": "Abyssum Runner",
+  "description": "Procedural 3D endless runner game in the Abyssum Universe with physics colliders, lane mechanics, and Supabase persistent leaderboards.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,63 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-cyan: #F27D26;
+  --color-brand-orange: #F27D26;
+  --color-cyan-405: #F27D26;
+  --color-cyan-305: #ffd3b0;
+  --color-cyan-400: #F27D26;
+  --color-cyan-300: #ffd3b0;
+  --color-purple-500: #e65c00;
+  --color-purple-400: #ff914d;
+  --color-amber-400: #F27D26;
+  --color-yellow-450: #F27D26;
+  --color-yellow-405: #F27D26;
+}
+
+/* Custom glow effects for the Immersive UI theme */
+.glow-orange {
+  text-shadow: 0 0 8px rgba(242, 125, 38, 0.6), 0 0 16px rgba(242, 125, 38, 0.3);
+}
+
+.box-glow-orange {
+  box-shadow: 0 0 12px rgba(242, 125, 38, 0.4), inset 0 0 8px rgba(242, 125, 38, 0.2);
+}
+
+.glow-cyan {
+  text-shadow: 0 0 8px rgba(242, 125, 38, 0.6), 0 0 16px rgba(242, 125, 38, 0.3);
+}
+
+.glow-red {
+  text-shadow: 0 0 8px rgba(239, 68, 68, 0.6), 0 0 16px rgba(239, 68, 68, 0.3);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: #050505;
+}
+::-webkit-scrollbar-thumb {
+  background: #F27D26;
+  border-radius: 2px;
+}
+
+/* Carbon fibre viewport background pattern */
+.carbon-fibre {
+  background-color: #000000;
+  background-image: 
+    radial-gradient(rgba(242, 125, 38, 0.15) 15%, transparent 16%),
+    radial-gradient(rgba(242, 125, 38, 0.15) 15%, transparent 16%),
+    linear-gradient(32deg, #050505 40%, transparent 40%),
+    linear-gradient(148deg, #050505 40%, transparent 40%),
+    linear-gradient(280deg, #111111 60%, transparent 60%),
+    linear-gradient(148deg, #111111 60%, transparent 60%);
+  background-size: 8px 8px;
+}
+
+/* CRT scanlines effect */
+.crt-analog-noise {
+  background: radial-gradient(circle, transparent 50%, rgba(0, 0, 0, 0.4) 100%);
+  pointer-events: none;
+}
